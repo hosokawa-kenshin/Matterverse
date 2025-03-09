@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:matterverse_app/config/post_config.dart';
+import 'package:matterverse_app/widget/page_header.dart';
+import 'package:animated_sidebar/animated_sidebar.dart';
 
 class Screen extends StatefulWidget {
   const Screen({super.key});
@@ -9,13 +12,19 @@ class Screen extends StatefulWidget {
 }
 
 class _ScreenState extends State<Screen> {
-  bool _isChecked = true;
+  int activeTab = 0;
 
-  Future<void> postData() async {
+  final List<SidebarItem> items = [
+    SidebarItem(icon: Icons.home_outlined, text: 'Home'),
+    SidebarItem(icon: Icons.lightbulb_outline, text: 'Devices'),
+    SidebarItem(icon: Icons.settings_outlined, text: 'Settings'),
+  ];
+
+  Future<void> sendCommand(command, node, endpoint) async {
     final response = await http.post(
-      Uri.parse('https://localhost:8000/send_command'),
+      Uri.parse(PostConfig.sendCommandUri),
       headers: {'Content-Type': 'application/json'},
-      body: json.encode({'command': 'onoff toggle 100 1'}),
+      body: json.encode({'command': '${command} ${node} ${endpoint}'}),
     );
 
     if (response.statusCode == 200) {
@@ -29,62 +38,74 @@ class _ScreenState extends State<Screen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.indigoAccent,
-        title: Text("Matterverse"),
-      ),
-      body:
-          Column(mainAxisAlignment: MainAxisAlignment.start, children: <Widget>[
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          mainAxisSize: MainAxisSize.max,
-          children: <Widget>[
-            const Icon(Icons.outlet_outlined),
-            Switch(
-                value: _isChecked,
-                onChanged: (value) {
-                  postData();
-                  setState(() {
-                    _isChecked = value;
-                  });
-                })
-          ],
+        body: Container(
+      color: Color.fromARGB(255, 255, 255, 255),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        AnimatedSidebar(
+          margin: const EdgeInsets.fromLTRB(16, 24, 0, 24),
+          expanded: MediaQuery.of(context).size.width > 600,
+          items: items,
+          selectedIndex: activeTab,
+          autoSelectedIndex: false,
+          onItemSelected: (index) => setState(() => activeTab = index),
+          duration: const Duration(milliseconds: 100),
+          frameDecoration: const BoxDecoration(
+            color: Color.fromARGB(255, 48, 54, 87),
+            borderRadius: BorderRadius.all(Radius.circular(10)),
+          ),
+          minSize: 90,
+          maxSize: 250,
+          itemIconSize: 26,
+          itemIconColor: Colors.white,
+          itemHoverColor: Colors.grey.withOpacity(0.3),
+          itemSelectedColor: Colors.grey.withOpacity(0.3),
+          itemTextStyle: const TextStyle(color: Colors.white, fontSize: 20),
+          itemSelectedBorder: const BorderRadius.all(
+            Radius.circular(5),
+          ),
+          itemMargin: 16,
+          itemSpaceBetween: 10,
+          headerIcon: Icons.device_hub_outlined,
+          headerIconSize: 30,
+          headerIconColor: Colors.amberAccent,
+          headerTextStyle: const TextStyle(
+              fontSize: 24, fontWeight: FontWeight.w600, color: Colors.white),
+          headerText: 'Matterverse',
+        ),
+        Expanded(
+          child: _buildPage(activeTab),
         ),
       ]),
-      drawer: Drawer(
-        child: ListView(
-          children: [
-            DrawerHeader(
-              child: Text(
-                'Matterverse',
-                style: TextStyle(
-                  fontSize: 24,
-                  color: Colors.white,
-                ),
-              ),
-              decoration: BoxDecoration(
-                color: Colors.indigoAccent,
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.space_dashboard_outlined),
-              title: const Text("ダッシュボード"),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.login),
-              title: const Text("メニュー2"),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.favorite),
-              title: const Text("メニュー3"),
-              onTap: () {},
-            )
-          ],
-        ),
-      ),
-    );
+    ));
+  }
+
+  List<Map<String, String>> deviceList = [
+    {"name": "Tapo Smart Plug"},
+  ];
+
+  bool _isChecked = true;
+  Widget _buildPage(int idx) {
+    switch (idx) {
+      case 0:
+        return Text("Home"); //_buildHome();
+      case 1:
+        return Wrap(children: <Widget>[
+          PageHeader(title: "Devices", description: "description"),
+          SwitchListTile(
+            title: Text(deviceList[0]["name"] ?? ''),
+            value: _isChecked,
+            onChanged: (bool value) {
+              sendCommand("onoff toggle", 100, 1);
+              setState(() {
+                _isChecked = value;
+              });
+            },
+          )
+        ]); //_buildDevices();
+      case 2:
+        return Text("Setting"); //_buildSettings();
+      default:
+        return Text("Error");
+    }
   }
 }
