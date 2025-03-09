@@ -53,7 +53,8 @@ blecent_scan(void)
 
     /* Figure out address to use while advertising (no privacy for now) */
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
-    if (rc != 0) {
+    if (rc != 0)
+    {
         MODLOG_DFLT(ERROR, "error determining address type; rc=%d\n", rc);
         return;
     }
@@ -77,7 +78,8 @@ blecent_scan(void)
 
     rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params,
                       blecent_gap_event, NULL);
-    if (rc != 0) {
+    if (rc != 0)
+    {
         MODLOG_DFLT(ERROR, "Error initiating GAP discovery procedure; rc=%d\n",
                     rc);
     }
@@ -92,62 +94,49 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
     uint16_t major, minor;
     int8_t tx_power, rssi;
 
-    switch (event->type) {
+    switch (event->type)
+    {
     case BLE_GAP_EVENT_DISC:
         rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
                                      event->disc.length_data);
-        if (rc != 0) {
+        if (rc != 0)
+        {
             return 0;
         }
         //*tx_power*//
 
-        ibeacon_data = (esp_ble_ibeacon_t*)(event->disc.data);
+        ibeacon_data = (esp_ble_ibeacon_t *)(event->disc.data);
         char buf[100];
-        sprintf(buf,"%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x"
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[0]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[1]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[2]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[3]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[4]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[5]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[6]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[7]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[8]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[9]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[10]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[11]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[12]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[13]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[14]
-                                        ,ibeacon_data->ibeacon_vendor.proximity_uuid[15]);
-        if(!strcmp(buf,"0 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff")){
-          printf("UUID: %s\n",buf);
-          major = ENDIAN_CHANGE_U16(ibeacon_data->ibeacon_vendor.major);
-          minor = ENDIAN_CHANGE_U16(ibeacon_data->ibeacon_vendor.minor);
-          printf("Major: %u\nMinor: %u\n",major,minor);
-          //*tx_power*//
-          tx_power = ibeacon_data->ibeacon_vendor.measured_power;
-          rssi = event->disc.rssi;
-          printf("RSSI: %d\nMeasured_Power: %d\n",rssi,tx_power);
-          double distance = pow(10.0, (tx_power - rssi) / 20.0) * 25.5;
-          uint8_t distance_meter = static_cast<uint8_t>(distance);
-          double distance_after = static_cast<double>(distance_meter);
-          printf("Distance(lf): %lf\nDistance_recv(lf): %lf\n\n",distance/25.5,distance_after/25.5);
-          printf("is_commissioned: %d\n",is_commissioned);
-          uint16_t msg_i = distance_meter << 8 | static_cast<uint8_t>(minor);
-          char msg[10];
-          sprintf(msg,"%u",msg_i);
-          printf("%s\n",msg);
-          uint8_t receive_uuid = msg_i & 0x00FF;
-          uint8_t receive_distance = (msg_i & 0xFF00) >> 8;
-          printf("%u\n%u\n",receive_uuid,receive_distance);
-          /* Write command */
-          if(is_commissioned && distance<10){
+        sprintf(buf, "%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x", ibeacon_data->ibeacon_vendor.proximity_uuid[0], ibeacon_data->ibeacon_vendor.proximity_uuid[1], ibeacon_data->ibeacon_vendor.proximity_uuid[2], ibeacon_data->ibeacon_vendor.proximity_uuid[3], ibeacon_data->ibeacon_vendor.proximity_uuid[4], ibeacon_data->ibeacon_vendor.proximity_uuid[5], ibeacon_data->ibeacon_vendor.proximity_uuid[6], ibeacon_data->ibeacon_vendor.proximity_uuid[7], ibeacon_data->ibeacon_vendor.proximity_uuid[8], ibeacon_data->ibeacon_vendor.proximity_uuid[9], ibeacon_data->ibeacon_vendor.proximity_uuid[10], ibeacon_data->ibeacon_vendor.proximity_uuid[11], ibeacon_data->ibeacon_vendor.proximity_uuid[12], ibeacon_data->ibeacon_vendor.proximity_uuid[13], ibeacon_data->ibeacon_vendor.proximity_uuid[14], ibeacon_data->ibeacon_vendor.proximity_uuid[15]);
+        // if(!strcmp(buf,"0 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff")){
+        printf("UUID: %s\n", buf);
+        major = ENDIAN_CHANGE_U16(ibeacon_data->ibeacon_vendor.major);
+        minor = ENDIAN_CHANGE_U16(ibeacon_data->ibeacon_vendor.minor);
+        printf("Major: %u\nMinor: %u\n", major, minor);
+        //*tx_power*//
+        tx_power = ibeacon_data->ibeacon_vendor.measured_power;
+        rssi = event->disc.rssi;
+        printf("RSSI: %d\nMeasured_Power: %d\n", rssi, tx_power);
+        double distance = pow(10.0, (tx_power - rssi) / 20.0) * 25.5;
+        uint8_t distance_meter = static_cast<uint8_t>(distance);
+        double distance_after = static_cast<double>(distance_meter);
+        //   printf("Distance(lf): %lf\nDistance_recv(lf): %lf\n\n",distance/25.5,distance_after/25.5);
+        printf("is_commissioned: %d\n", is_commissioned);
+        uint16_t msg_i = distance_meter << 8 | static_cast<uint8_t>(minor);
+        char msg[10];
+        sprintf(msg, "%u", msg_i);
+        printf("%s\n", msg);
+        uint8_t receive_uuid = msg_i & 0x00FF;
+        uint8_t receive_distance = (msg_i & 0xFF00) >> 8;
+        printf("%u\n%u\n", receive_uuid, receive_distance);
+        /* Write command */
+        if (is_commissioned && distance < 10)
+        {
             using namespace chip::app::Clusters;
             chip::DeviceLayer::StackLock lock;
-            esp_matter::controller::send_write_attr_command(static_cast<uint64_t>(1), static_cast<uint16_t>(1), OnOff::Id, OnOff::Attributes::OffWaitTime::Id,msg);
-          }
+            esp_matter::controller::send_write_attr_command(static_cast<uint64_t>(1), static_cast<uint16_t>(1), OnOff::Id, OnOff::Attributes::OffWaitTime::Id, msg);
         }
+        // }
         return 0;
 
     default:
@@ -194,7 +183,8 @@ using namespace esp_matter::endpoint;
 
 static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 {
-    switch (event->Type) {
+    switch (event->Type)
+    {
     case chip::DeviceLayer::DeviceEventType::PublicEventTypes::kInterfaceIpAddressChanged:
         ESP_LOGI(TAG, "Interface IP Address changed");
         break;
@@ -244,10 +234,10 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
     }
 }
 
-static void app_driver_button_toggle_cb(void*, void*)
+static void app_driver_button_toggle_cb(void *, void *)
 {
-      ESP_LOGI(TAG, "Toggle button pressed");
-      controller::pairing_on_network(static_cast<uint64_t>(1), pincode);
+    ESP_LOGI(TAG, "Toggle button pressed");
+    controller::pairing_on_network(static_cast<uint64_t>(1), pincode);
 }
 
 static app_driver_handle_t app_driver_button_init()
@@ -288,7 +278,8 @@ extern "C" void app_main()
 
     /* Matter start */
     err = esp_matter::start(app_event_cb);
-    if (err != ESP_OK) {
+    if (err != ESP_OK)
+    {
         /// ESP_LOGE(TAG, "Matter start failed: %d", err);
     }
 

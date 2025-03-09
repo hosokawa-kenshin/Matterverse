@@ -26,6 +26,10 @@ Python 3.x
     cd ..
     ```
 ## 使い方
+1. 書き込むターゲットを指定する．
+    ```bash
+    export ESP_MATTER_DEVICE_PATH=$(pwd)/device/m5stampc3 && idf.py set-target esp32c3
+    ```
 1. 接続するネットワークの設定を行う．
     ```bash
     cd beacon_mediator
