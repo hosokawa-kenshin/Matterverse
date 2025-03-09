@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:adaptive_theme/adaptive_theme.dart';
-import 'package:matterverse_app/theme.dart';
+import 'package:matterverse_app/theme/theme.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:matterverse_app/router.dart';
 

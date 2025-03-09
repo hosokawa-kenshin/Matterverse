@@ -1,11 +1,10 @@
-import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:matterverse_app/scaffold_with_navigation.dart';
-import 'package:matterverse_app/dashboard.dart';
-import 'package:matterverse_app/devices.dart';
-import 'package:matterverse_app/settings.dart';
+import 'package:matterverse_app/navigation/scaffold_with_navigation.dart';
+import 'package:matterverse_app/feature/dashboard.dart';
+import 'package:matterverse_app/feature/devices.dart';
+import 'package:matterverse_app/feature/settings.dart';
 
 part 'router.g.dart';
 

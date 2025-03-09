@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
-import 'package:matterverse_app/navigation_title.dart';
+import 'package:matterverse_app/navigation/navigation_title.dart';
 
 class NavigationAppBar extends StatelessWidget implements PreferredSizeWidget {
   const NavigationAppBar({super.key});
