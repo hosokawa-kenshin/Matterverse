@@ -46,7 +46,7 @@ async def run_chip_tool_command(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
             print(f"Received command: {data}")
-            chip_process.stdin.write(request.command)
+            chip_process.stdin.write(data)
             chip_process.stdin.write('\n')
             chip_process.stdin.write('\n')
             chip_process.stdin.flush()
