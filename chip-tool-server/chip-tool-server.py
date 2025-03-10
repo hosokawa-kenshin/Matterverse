@@ -6,7 +6,7 @@ from lark import Lark, Transformer
 from dotenv import load_dotenv
 import os
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -27,11 +27,7 @@ async def lifespan(app: FastAPI):
     chip_process = run_chip_tool()
 
     yield
-
-    chip_process.terminate()
-    await asyncio.sleep(1)
-    if chip_process.poll() is None:
-        chip_process.kill()
+    print ("Terminating chip-tool REPL...")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -43,25 +39,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/send_command")
-async def run_chip_tool_command(request: CommandRequest):
-    print(f"received command: {request.command}")
-    chip_process.stdin.write(request.command)
-    chip_process.stdin.write('\n')
-    chip_process.stdin.write('\n')
-    chip_process.stdin.flush()
-    output = []
-    while True:
-        line = chip_process.stdout.readline()
-        if "Missing cluster or command set name" in line:
-            chip_process.stdout.flush()
-            break
-        output.append(line)
-    log = ''.join(output)
-    data = delete_garbage(log)
-    tree = parse_chip_data(data)
-    parsed_json = TreeToJson().transform(tree)
-    return parsed_json
+@app.websocket("/ws")
+async def run_chip_tool_command(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            print(f"Received command: {data}")
+            chip_process.stdin.write(request.command)
+            chip_process.stdin.write('\n')
+            chip_process.stdin.write('\n')
+            chip_process.stdin.flush()
+            output = []
+            while True:
+                line = chip_process.stdout.readline()
+                if "Missing cluster or command set name" in line:
+                    chip_process.stdout.flush()
+                    break
+                output.append(line)
+            log = ''.join(output)
+            data = delete_garbage(log)
+            tree = parse_chip_data(data)
+            parsed_json = TreeToJson().transform(tree)
+            await websocket.send_text(json.dumps(parsed_json))
+    except WebSocketDisconnect:
+        chip_process.terminate()
+        await asyncio.sleep(1)
+        if chip_process.poll() is None:
+            chip_process.kill()
+        print("WebSocket disconnected")
 
 def run_chip_tool():
     process = subprocess.Popen(
