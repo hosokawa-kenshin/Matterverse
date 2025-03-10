@@ -43,6 +43,7 @@ dependencies:
   responsive_framework: ^1.5.1
   recase: ^4.1.0
   gap: ^3.0.1
+  web_socket_channel: ^3.0.2
 
 dev_dependencies:
   flutter_test:
