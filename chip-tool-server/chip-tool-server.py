@@ -20,13 +20,43 @@ COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 class CommandRequest(BaseModel):
     command: str
 
-async def lifespan(app: FastAPI):
+request_queue = asyncio.Queue()
+
+async def process_requests():
     global chip_process
-
-    print("Starting chip-tool REPL...")
     chip_process = run_chip_tool()
+    while True:
+        websocket, command = await request_queue.get()
+        try:
+            chip_process.stdin.write(command)
+            chip_process.stdin.write('\n')
+            chip_process.stdin.write('\n')
+            chip_process.stdin.flush()
+            output = []
+            while True:
+                line = chip_process.stdout.readline()
+                if "Missing cluster or command set name" in line:
+                    chip_process.stdout.flush()
+                    break
+                output.append(line)
+            log = ''.join(output)
+            data = delete_garbage(log)
+            tree = parse_chip_data(data)
+            parsed_json = TreeToJson().transform(tree)
+            await websocket.send_text(json.dumps(parsed_json))
+        except Exception as e:
+            await websocket.send_text(json.dumps({"error": str(e)}))
+        finally:
+            request_queue.task_done()
 
+async def lifespan(app: FastAPI):
+    print("Starting chip-tool REPL...")
+    asyncio.create_task(process_requests())
     yield
+    chip_process.terminate()
+    await asyncio.sleep(1)
+    if chip_process.poll() is None:
+        chip_process.kill()
     print ("Terminating chip-tool REPL...")
 
 app = FastAPI(lifespan=lifespan)
@@ -44,29 +74,10 @@ async def run_chip_tool_command(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            data = await websocket.receive_text()
-            print(f"Received command: {data}")
-            chip_process.stdin.write(request.command)
-            chip_process.stdin.write('\n')
-            chip_process.stdin.write('\n')
-            chip_process.stdin.flush()
-            output = []
-            while True:
-                line = chip_process.stdout.readline()
-                if "Missing cluster or command set name" in line:
-                    chip_process.stdout.flush()
-                    break
-                output.append(line)
-            log = ''.join(output)
-            data = delete_garbage(log)
-            tree = parse_chip_data(data)
-            parsed_json = TreeToJson().transform(tree)
-            await websocket.send_text(json.dumps(parsed_json))
+            command = await websocket.receive_text()
+            print(f"Received command: {command}")
+            await request_queue.put((websocket, command))
     except WebSocketDisconnect:
-        chip_process.terminate()
-        await asyncio.sleep(1)
-        if chip_process.poll() is None:
-            chip_process.kill()
         print("WebSocket disconnected")
 
 def run_chip_tool():
