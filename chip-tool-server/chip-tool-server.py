@@ -22,58 +22,77 @@ class CommandRequest(BaseModel):
 
 request_queue = asyncio.Queue()
 
-async def read_chip_tool_output(process):
+async def read_chip_tool_output():
+    loop = asyncio.get_running_loop()
     while True:
-        line = await process.stdout.readline()
-        if line:
-            buffer_content = await process.stdout.read()
-            process.stdout.flush()
-            all_content = line.decode() + buffer_content.decode() if isinstance(line, bytes) else line + buffer_content
-            lines = all_content.splitlines()
-            current_output = []
-            outputs = []
-            for line in lines:
-                if "Missing cluster or command set name" in line or "Refresh LivenessCheckTime for" in line:
-                    if current_output:
-                        log = ''.join(current_output)
-                        data = delete_garbage(log)
+        # line = await loop.run_in_executor(None, chip_process.stdout.readline)
+        all_content = await chip_process.stdout.read()
+        # line = await chip_process.stdout.readline()
+        # buffer_content = await chip_process.stdout.read()
+        # chip_process.stdout.flush()
+        # all_content = line.decode() + buffer_content.decode() if isinstance(line, bytes) else line + buffer_content
+        lines = all_content.splitlines()
+        current_output = []
+        outputs = []
+        for line in lines:
+            if "HandlePlatformSpecificBLEEvent" in line:
+                # chip_process.stdout.flush()
+                current_output = []
+                break
+            elif "Missing cluster or command set name" in line or "Refresh LivenessCheckTime for" in line:
+                if current_output:
+                    log = ''.join(current_output)
+                    data = delete_garbage(log)
+                    if data and data.strip():
                         tree = parse_chip_data(data)
                         parsed_json = TreeToJson().transform(tree)
-                        if "Subscription" in parsed_json:
-                            await websocket.send_text(json.dumps(parsed_json))
-                    current_output = []
-                else:
-                    current_output.append(line + '\n')
-
-            if current_output:
-                log = ''.join(current_output)
-                data = delete_garbage(log)
+                        # if "Subscription" in parsed_json:
+                        #     await websocket.send_text(json.dumps(parsed_json))
+                        print(parsed_json)
+                current_output = []
+            else:
+                current_output.append(line + '\n')
+        if current_output:
+            log = ''.join(current_output)
+            data = delete_garbage(log)
+            if data and data.strip():
                 tree = parse_chip_data(data)
                 parsed_json = TreeToJson().transform(tree)
-                if "Subscription" in parsed_json:
-                    await websocket.send_text(json.dumps(parsed_json))
-        else:
+                print(parsed_json)
+                # if "Subscription" in parsed_json:
+                #     await websocket.send_text(json.dumps(parsed_json))
+        await asyncio.sleep(0.1)
+        print("Read chip-tool output")
+
+async def read_repl_output():
+    while True:
+        line = await chip_process.stdout.readline()
+        if not line:
             break
+        print("出力:", line.decode().strip())
 
 async def process_requests():
-    global chip_process
-    chip_process = run_chip_tool()
     while True:
         websocket, command = await request_queue.get()
-        try:
-            chip_process.stdin.write(command)
-            chip_process.stdin.write('\n')
-            chip_process.stdin.write('\n')
-            chip_process.stdin.flush()
+        print(f"Processing command: {command}")
 
+        try:
+            chip_process.stdin.write(command.encode() + b'\n')
+            await chip_process.stdin.drain()
         except Exception as e:
-            await websocket.send_text(json.dumps({"error": str(e)}))
-        finally:
-            request_queue.task_done()
+            print(f"Error processing command: {command}")
+            print(e)
 
 async def lifespan(app: FastAPI):
     print("Starting chip-tool REPL...")
+    global chip_process
+    chip_process = await run_chip_tool()
+
     asyncio.create_task(process_requests())
+    asyncio.create_task(read_repl_output())
+    # asyncio.create_task(read_chip_tool_output())
+    print("chip-tool REPL started.")
+
     yield
     chip_process.terminate()
     await asyncio.sleep(1)
@@ -102,11 +121,19 @@ async def run_chip_tool_command(websocket: WebSocket):
     except WebSocketDisconnect:
         print("WebSocket disconnected")
 
-def run_chip_tool():
-    process = subprocess.Popen(
-        [CHIP_TOOL_PATH, "interactive", "start", "--storage-directory", COMMISSIONING_DIR],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+async def run_chip_tool():
+    # process = subprocess.Popen(
+    #     [CHIP_TOOL_PATH, "interactive", "start", "--storage-directory", COMMISSIONING_DIR],
+    #     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    # )
+    process = await asyncio.create_subprocess_exec(
+        CHIP_TOOL_PATH, "interactive", "start", "--storage-directory", COMMISSIONING_DIR,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
     )
+
+    # process.stdout.flush()
     return process
 
 grammar = """
@@ -145,7 +172,7 @@ def delete_garbage(log):
         if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
             formatted_lines.append(columns[3:])
 
-    formatted_string = '\n'.join([' '.join(line) for line in formatted_lines])
+    formatted_string = ' '.join([' '.join(line) for line in formatted_lines])
     return formatted_string
 
 class TreeToJson(Transformer):
@@ -210,17 +237,3 @@ def parse_chip_data(data):
 def print_tree_json(tree):
     parsed_json = json.dumps(TreeToJson().transform(tree), indent=4)
     print(parsed_json)
-
-# def main():
-#     process = run_chip_tool()
-#     while True:
-#         command = input("Enter command: ")
-#         if command.lower() == 'exit':
-#             break
-#         log = run_chip_tool_command(process, command)
-#         data = delete_garbage(log)
-#         tree = parse_chip_data(data)
-#         print_tree_json(tree)
-
-# if __name__ == "__main__":
-#     main()
