@@ -22,6 +22,39 @@ class CommandRequest(BaseModel):
 
 request_queue = asyncio.Queue()
 
+async def read_chip_tool_output(process):
+    while True:
+        line = await process.stdout.readline()
+        if line:
+            buffer_content = await process.stdout.read()
+            process.stdout.flush()
+            all_content = line.decode() + buffer_content.decode() if isinstance(line, bytes) else line + buffer_content
+            lines = all_content.splitlines()
+            current_output = []
+            outputs = []
+            for line in lines:
+                if "Missing cluster or command set name" in line or "Refresh LivenessCheckTime for" in line:
+                    if current_output:
+                        log = ''.join(current_output)
+                        data = delete_garbage(log)
+                        tree = parse_chip_data(data)
+                        parsed_json = TreeToJson().transform(tree)
+                        if "Subscription" in parsed_json:
+                            await websocket.send_text(json.dumps(parsed_json))
+                    current_output = []
+                else:
+                    current_output.append(line + '\n')
+
+            if current_output:
+                log = ''.join(current_output)
+                data = delete_garbage(log)
+                tree = parse_chip_data(data)
+                parsed_json = TreeToJson().transform(tree)
+                if "Subscription" in parsed_json:
+                    await websocket.send_text(json.dumps(parsed_json))
+        else:
+            break
+
 async def process_requests():
     global chip_process
     chip_process = run_chip_tool()
@@ -32,18 +65,7 @@ async def process_requests():
             chip_process.stdin.write('\n')
             chip_process.stdin.write('\n')
             chip_process.stdin.flush()
-            output = []
-            while True:
-                line = chip_process.stdout.readline()
-                if "Missing cluster or command set name" in line:
-                    chip_process.stdout.flush()
-                    break
-                output.append(line)
-            log = ''.join(output)
-            data = delete_garbage(log)
-            tree = parse_chip_data(data)
-            parsed_json = TreeToJson().transform(tree)
-            await websocket.send_text(json.dumps(parsed_json))
+
         except Exception as e:
             await websocket.send_text(json.dumps({"error": str(e)}))
         finally:
