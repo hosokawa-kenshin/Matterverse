@@ -22,54 +22,37 @@ class CommandRequest(BaseModel):
 
 request_queue = asyncio.Queue()
 
-async def read_chip_tool_output():
-    loop = asyncio.get_running_loop()
+async def parse_chip_tool_output():
+    global chip_tool_output
     while True:
-        # line = await loop.run_in_executor(None, chip_process.stdout.readline)
-        all_content = await chip_process.stdout.read()
-        # line = await chip_process.stdout.readline()
-        # buffer_content = await chip_process.stdout.read()
-        # chip_process.stdout.flush()
-        # all_content = line.decode() + buffer_content.decode() if isinstance(line, bytes) else line + buffer_content
-        lines = all_content.splitlines()
-        current_output = []
-        outputs = []
-        for line in lines:
-            if "HandlePlatformSpecificBLEEvent" in line:
-                # chip_process.stdout.flush()
-                current_output = []
-                break
-            elif "Missing cluster or command set name" in line or "Refresh LivenessCheckTime for" in line:
-                if current_output:
-                    log = ''.join(current_output)
-                    data = delete_garbage(log)
-                    if data and data.strip():
-                        tree = parse_chip_data(data)
-                        parsed_json = TreeToJson().transform(tree)
-                        # if "Subscription" in parsed_json:
-                        #     await websocket.send_text(json.dumps(parsed_json))
-                        print(parsed_json)
-                current_output = []
-            else:
-                current_output.append(line + '\n')
-        if current_output:
-            log = ''.join(current_output)
-            data = delete_garbage(log)
-            if data and data.strip():
-                tree = parse_chip_data(data)
-                parsed_json = TreeToJson().transform(tree)
-                print(parsed_json)
-                # if "Subscription" in parsed_json:
-                #     await websocket.send_text(json.dumps(parsed_json))
-        await asyncio.sleep(0.1)
-        print("Read chip-tool output")
+        if "Refresh LivenessCheckTime for" in chip_tool_output or "Received Command Response Status" in chip_tool_output:
+            lines = chip_tool_output.splitlines()
+            chip_tool_output = ""
+            current_output = []
+            for line in lines:
+                if "Refresh LivenessCheckTime for" in line or "Received Command Response Status" in line:
+                    if current_output:
+                        log = ''.join(current_output)
+                        data = delete_garbage(log)
+                        if data and data.strip():
+                            tree = parse_chip_data(data)
+                            parsed_json = TreeToJson().transform(tree)
+                            print("Received data: ", parsed_json)
+                            if "Subscription" in parsed_json:
+                                await websocket.send_text(json.dumps(parsed_json))
+                    current_output = []
+                else:
+                    current_output.append(line + '\n')
+            current_output = []
+            await asyncio.sleep(0.1)
+        else:
+            await asyncio.sleep(0.1)
 
 async def read_repl_output():
+    global chip_tool_output
     while True:
         line = await chip_process.stdout.readline()
-        if not line:
-            break
-        print("出力:", line.decode().strip())
+        chip_tool_output += line.decode()
 
 async def process_requests():
     while True:
@@ -86,14 +69,20 @@ async def process_requests():
 async def lifespan(app: FastAPI):
     print("Starting chip-tool REPL...")
     global chip_process
+    global chip_tool_output
     chip_process = await run_chip_tool()
+    chip_tool_output = ""
 
     asyncio.create_task(process_requests())
     asyncio.create_task(read_repl_output())
-    # asyncio.create_task(read_chip_tool_output())
+    asyncio.create_task(parse_chip_tool_output())
     print("chip-tool REPL started.")
 
     yield
+
+    for task in asyncio.all_tasks():
+        task.cancel()
+
     chip_process.terminate()
     await asyncio.sleep(1)
     if chip_process.poll() is None:
@@ -122,18 +111,12 @@ async def run_chip_tool_command(websocket: WebSocket):
         print("WebSocket disconnected")
 
 async def run_chip_tool():
-    # process = subprocess.Popen(
-    #     [CHIP_TOOL_PATH, "interactive", "start", "--storage-directory", COMMISSIONING_DIR],
-    #     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    # )
     process = await asyncio.create_subprocess_exec(
         CHIP_TOOL_PATH, "interactive", "start", "--storage-directory", COMMISSIONING_DIR,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-
-    # process.stdout.flush()
     return process
 
 grammar = """
