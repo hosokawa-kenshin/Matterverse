@@ -17,20 +17,33 @@ load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
 COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 
-class CommandRequest(BaseModel):
-    command: str
-
 request_queue = asyncio.Queue()
 
-async def parse_chip_tool_output():
+import signal
+
+async def handle_shutdown():
+    print("Shutdown signal received. Stopping tasks...")
+    for task in asyncio.all_tasks():
+        task.cancel()
+    await asyncio.sleep(1)
+    print("All tasks cancelled. Exiting.")
+
+def shutdown_handler():
+    asyncio.create_task(handle_shutdown())
+
+loop = asyncio.get_event_loop()
+loop.add_signal_handler(signal.SIGINT, shutdown_handler)
+loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
+
+async def parse_subscribe_chip_tool_output():
     global chip_tool_output
     while True:
-        if "Refresh LivenessCheckTime for" in chip_tool_output or "Received Command Response Status" in chip_tool_output:
+        if "Refresh LivenessCheckTime for" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
             current_output = []
             for line in lines:
-                if "Refresh LivenessCheckTime for" in line or "Received Command Response Status" in line:
+                if "Refresh LivenessCheckTime for" in line:
                     if current_output:
                         log = ''.join(current_output)
                         data = delete_garbage(log)
@@ -38,13 +51,34 @@ async def parse_chip_tool_output():
                             tree = parse_chip_data(data)
                             parsed_json = TreeToJson().transform(tree)
                             print("Received data: ", parsed_json)
-                            if "Subscription" in parsed_json:
-                                await websocket.send_text(json.dumps(parsed_json))
-                    current_output = []
+                            return parsed_json
                 else:
                     current_output.append(line + '\n')
             current_output = []
             await asyncio.sleep(0.1)
+        else:
+            await asyncio.sleep(0.1)
+
+async def parse_chip_tool_output():
+    global chip_tool_output
+    while True:
+        if "Received Command Response Status" in chip_tool_output:
+            lines = chip_tool_output.splitlines()
+            chip_tool_output = ""
+            current_output = []
+            for line in lines:
+                if "Received Command Response Status" in line:
+                    if current_output:
+                        log = ''.join(current_output)
+                        data = delete_garbage(log)
+                        if data and data.strip():
+                            tree = parse_chip_data(data)
+                            parsed_json = TreeToJson().transform(tree)
+                            print("Received data: ", parsed_json)
+                            return parsed_json
+                else:
+                    current_output.append(line + '\n')
+            break
         else:
             await asyncio.sleep(0.1)
 
@@ -56,15 +90,22 @@ async def read_repl_output():
 
 async def process_requests():
     while True:
-        websocket, command = await request_queue.get()
-        print(f"Processing command: {command}")
+        parsed_json = ""
 
         try:
+            websocket, command = await request_queue.get()
+            print(f"Processing command: {command}")
             chip_process.stdin.write(command.encode() + b'\n')
             await chip_process.stdin.drain()
+            parsed_json = await parse_chip_tool_output()
+            await websocket.send_text(json.dumps(parsed_json))
+
         except Exception as e:
             print(f"Error processing command: {command}")
             print(e)
+
+        except asyncio.exceptions.CancelledError:
+            break
 
 async def lifespan(app: FastAPI):
     print("Starting chip-tool REPL...")
@@ -73,21 +114,23 @@ async def lifespan(app: FastAPI):
     chip_process = await run_chip_tool()
     chip_tool_output = ""
 
-    asyncio.create_task(process_requests())
-    asyncio.create_task(read_repl_output())
-    asyncio.create_task(parse_chip_tool_output())
+    tasks = [
+        asyncio.create_task(process_requests()),
+        asyncio.create_task(read_repl_output()),
+        asyncio.create_task(parse_subscribe_chip_tool_output())
+    ]
     print("chip-tool REPL started.")
 
     yield
 
-    for task in asyncio.all_tasks():
+    print("Stopping chip-tool REPL...")
+    for task in tasks:
         task.cancel()
-
     chip_process.terminate()
     await asyncio.sleep(1)
     if chip_process.poll() is None:
         chip_process.kill()
-    print ("Terminating chip-tool REPL...")
+    print("chip-tool REPL stopped.")
 
 app = FastAPI(lifespan=lifespan)
 

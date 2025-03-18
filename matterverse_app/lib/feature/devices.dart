@@ -37,6 +37,7 @@ class _DevicesPageState extends State<DevicesPage> {
         setState(() {
           try {
             messages.add(message.toString());
+            print(message.toString());
           } catch (e) {
             messages.add('Error decoding message: $message');
           }
