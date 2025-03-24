@@ -1,0 +1,4 @@
+[submodule "sdk"]
+	path = sdk
+	url = https://github.com/hosokawa-kenshin/connectedhomeip.git
+	branch = factory_iot
