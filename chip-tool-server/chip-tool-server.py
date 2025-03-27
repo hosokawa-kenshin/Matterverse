@@ -20,6 +20,8 @@ COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 request_queue = asyncio.Queue()
 
 import signal
+class CommandRequest(BaseModel):
+    command: str
 
 async def handle_shutdown():
     print("Shutdown signal received. Stopping tasks...")
@@ -98,7 +100,8 @@ async def process_requests():
             chip_process.stdin.write(command.encode() + b'\n')
             await chip_process.stdin.drain()
             parsed_json = await parse_chip_tool_output()
-            await websocket.send_text(json.dumps(parsed_json))
+            if websocket:
+                await websocket.send_text(json.dumps(parsed_json))
 
         except Exception as e:
             print(f"Error processing command: {command}")
@@ -152,6 +155,12 @@ async def run_chip_tool_command(websocket: WebSocket):
             await request_queue.put((websocket, command))
     except WebSocketDisconnect:
         print("WebSocket disconnected")
+
+@app.post("/command")
+async def run_chip_tool_command(request: CommandRequest):
+    print(f"received command: {request.command}")
+    await request_queue.put((None, request.command))
+    return {"status": "success"}
 
 async def run_chip_tool():
     process = await asyncio.create_subprocess_exec(
