@@ -1,3 +1,3 @@
 #! /bin/bash
 
-uvicorn chip-tool-server:app --reload
+uvicorn chip-tool-server:app --host 0.0.0.0 --port 8000 --reload
