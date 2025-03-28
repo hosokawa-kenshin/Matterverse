@@ -1,0 +1,16 @@
+[Unit]
+Description=Matterverse
+Wants=network.target
+After=network.target
+
+[Service]
+# EnvironmentFile=/path/to/.env
+User=root
+WorkingDirectory=/path/to
+ExecStart=/path/to/bootstrap.sh
+
+Type=simple
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
