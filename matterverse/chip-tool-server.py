@@ -64,12 +64,12 @@ async def parse_subscribe_chip_tool_output():
 async def parse_chip_tool_output():
     global chip_tool_output
     while True:
-        if "Received Command Response Status" in chip_tool_output:
+        if "Received Command Response Status" in chip_tool_output or "[TOO] Endpoint:" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
             current_output = []
             for line in lines:
-                if "Received Command Response Status" in line:
+                if "Received Command Response Status" in line or "[TOO] Endpoint:" in line:
                     if current_output:
                         log = ''.join(current_output)
                         data = delete_garbage(log)
@@ -95,13 +95,15 @@ async def process_requests():
         parsed_json = ""
 
         try:
-            websocket, command = await request_queue.get()
+            websocket, command, future = await request_queue.get()
             print(f"Processing command: {command}")
             chip_process.stdin.write(command.encode() + b'\n')
             await chip_process.stdin.drain()
             parsed_json = await parse_chip_tool_output()
             if websocket:
                 await websocket.send_text(json.dumps(parsed_json))
+            elif future:
+                future.set_result(parsed_json)
 
         except Exception as e:
             print(f"Error processing command: {command}")
@@ -152,15 +154,17 @@ async def run_chip_tool_command(websocket: WebSocket):
         while True:
             command = await websocket.receive_text()
             print(f"Received command: {command}")
-            await request_queue.put((websocket, command))
+            await request_queue.put((websocket, command, None))
     except WebSocketDisconnect:
         print("WebSocket disconnected")
 
 @app.post("/command")
 async def run_chip_tool_command(request: CommandRequest):
     print(f"received command: {request.command}")
-    await request_queue.put((None, request.command))
-    return {"status": "success"}
+    future = asyncio.get_event_loop().create_future()
+    await request_queue.put((None, request.command, future))
+    result = await future
+    return result
 
 async def run_chip_tool():
     process = await asyncio.create_subprocess_exec(
