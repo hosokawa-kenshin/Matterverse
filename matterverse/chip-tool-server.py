@@ -5,21 +5,23 @@ import subprocess
 from lark import Lark, Transformer
 from dotenv import load_dotenv
 import os
-
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-
 import asyncio
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+import signal
+
+import paho.mqtt.client as mqtt
 
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
 COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 
+connected_clients = set()
 request_queue = asyncio.Queue()
 
-import signal
+
 class CommandRequest(BaseModel):
     command: str
 
@@ -39,13 +41,15 @@ loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
 
 async def parse_subscribe_chip_tool_output():
     global chip_tool_output
+    global connected_clients
+    global mqtt_client
     while True:
-        if "Refresh LivenessCheckTime for" in chip_tool_output:
+        if "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
             current_output = []
             for line in lines:
-                if "Refresh LivenessCheckTime for" in line:
+                if "Refresh LivenessCheckTime for" in line or "Subscription established with SubscriptionID" in chip_tool_output:
                     if current_output:
                         log = ''.join(current_output)
                         data = delete_garbage(log)
@@ -53,7 +57,10 @@ async def parse_subscribe_chip_tool_output():
                             tree = parse_chip_data(data)
                             parsed_json = TreeToJson().transform(tree)
                             print("Received data: ", parsed_json)
-                            return parsed_json
+                            for websocket in connected_clients:
+                                await websocket.send_text(json.dumps(parsed_json))
+                            # mqtt_client.publish("dt/matter/1/1/onoff/toggle", json.dumps(parsed_json))
+                            break
                 else:
                     current_output.append(line + '\n')
             current_output = []
@@ -64,7 +71,7 @@ async def parse_subscribe_chip_tool_output():
 async def parse_chip_tool_output():
     global chip_tool_output
     while True:
-        if "Received Command Response Status" in chip_tool_output or "[TOO] Endpoint:" in chip_tool_output:
+        if "Received Command Response Status" in chip_tool_output or "[TOO] Endpoint:" in chip_tool_output or "SubscribeResponse is received" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
             current_output = []
@@ -115,15 +122,23 @@ async def process_requests():
 async def lifespan(app: FastAPI):
     print("Starting chip-tool REPL...")
     global chip_process
+    global mqtt_client
     global chip_tool_output
-    chip_process = await run_chip_tool()
     chip_tool_output = ""
+    chip_process = await run_chip_tool()
+
+    mqtt_client = mqtt.Client(transport="websockets")
+    mqtt_client.connect("172.23.81.17", port=9001, keepalive=60)
+    mqtt_client.loop_start()
 
     tasks = [
         asyncio.create_task(process_requests()),
         asyncio.create_task(read_repl_output()),
         asyncio.create_task(parse_subscribe_chip_tool_output())
     ]
+
+    await run_chip_tool_subscribe_command("onoff subscribe on-off 10 100 1 1")
+
     print("chip-tool REPL started.")
 
     yield
@@ -136,6 +151,8 @@ async def lifespan(app: FastAPI):
     if chip_process.poll() is None:
         chip_process.kill()
     print("chip-tool REPL stopped.")
+    mqtt_client.loop_stop()
+    mqtt_client.disconnect()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -147,9 +164,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    global connected_clients
+    connected_clients = set()
+
 @app.websocket("/ws")
 async def run_chip_tool_command(websocket: WebSocket):
     await websocket.accept()
+    global connected_clients
+    connected_clients.add(websocket)
     try:
         while True:
             command = await websocket.receive_text()
@@ -157,12 +181,19 @@ async def run_chip_tool_command(websocket: WebSocket):
             await request_queue.put((websocket, command, None))
     except WebSocketDisconnect:
         print("WebSocket disconnected")
+        connected_clients.remove(websocket)
 
 @app.post("/command")
 async def run_chip_tool_command(request: CommandRequest):
     print(f"received command: {request.command}")
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, request.command, future))
+    result = await future
+    return result
+
+async def run_chip_tool_subscribe_command(command):
+    future = asyncio.get_event_loop().create_future()
+    await request_queue.put((None, command, future))
     result = await future
     return result
 
@@ -206,12 +237,13 @@ def delete_garbage(log):
 
     for line in lines:
         columns = line.split()
-        if "Received Command Response Status" in line:
+        if "Received Command Response Status" in line or "Subscription established with SubscriptionID" in line:
             continue
         if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
             formatted_lines.append(columns[3:])
 
     formatted_string = ' '.join([' '.join(line) for line in formatted_lines])
+    print("Formatted string: ", formatted_string)
     return formatted_string
 
 class TreeToJson(Transformer):
