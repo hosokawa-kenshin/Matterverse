@@ -57,7 +57,7 @@ async def parse_subscribe_chip_tool_output():
                             parsed_json = json.dumps(TreeToJson().transform(tree))
                             print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
                             await publish_to_all_websocket_clients(parsed_json)
-                            publish_to_mqtt_broker(mqtt_client, "dt/matter/1/1/onoff/toggle", parsed_json)
+                            publish_to_mqtt_broker(mqtt_client, parsed_json)
                             break
                 else:
                     current_output.append(line + '\n')
@@ -93,6 +93,7 @@ async def read_repl_output():
     global chip_tool_output
     while True:
         line = await chip_process.stdout.readline()
+        print(line.decode().strip())
         chip_tool_output += line.decode()
 
 async def process_requests():
@@ -133,7 +134,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(parse_subscribe_chip_tool_output())
     ]
 
-    await run_chip_tool_subscribe_command("onoff subscribe on-off 10 100 1 1")
+    await run_chip_tool_command("onoff subscribe on-off 10 100 1 1")
 
     print("\033[1;34mCHIP:\033[0m     chip-tool REPL started.")
 
@@ -166,7 +167,7 @@ async def startup_event():
     connected_clients = set()
 
 @app.websocket("/ws")
-async def run_chip_tool_command(websocket: WebSocket):
+async def run_chip_tool_command_ws(websocket: WebSocket):
     await websocket.accept()
     global connected_clients
     connected_clients.add(websocket)
@@ -180,14 +181,14 @@ async def run_chip_tool_command(websocket: WebSocket):
         connected_clients.remove(websocket)
 
 @app.post("/command")
-async def run_chip_tool_command(request: CommandRequest):
+async def run_chip_tool_command_post(request: CommandRequest):
     print(f"\033[1;34mCHIP:\033[0m     received command: {request.command}")
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, request.command, future))
     result = await future
     return result
 
-async def run_chip_tool_subscribe_command(command):
+async def run_chip_tool_command(command):
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, command, future))
     result = await future
@@ -249,8 +250,16 @@ def delete_garbage(log):
                 if node_id and not node_id.startswith("0x"):
                     node_id = "0x" + node_id.lstrip("0")
 
+        if "IM:InvokeCommandResponse" in line:
+            match = re.search(r'from\s+\d+:(\w{16})', line)
+            if match:
+                node_id = match.group(1)
+                if node_id and not node_id.startswith("0x"):
+                    node_id = "0x" + node_id.lstrip("0")
+                    print(f"NodeID: {node_id}")
+
         if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
-            if "Endpoint =" in line:
+            if "Endpoint =" in line or "EndpointId =" in line:
                 node_id_str = "NodeID = " + node_id
                 formatted_lines.append(node_id_str.strip())
             formatted_lines.append(' '.join(columns[3:]))
