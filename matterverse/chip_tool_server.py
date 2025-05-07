@@ -53,11 +53,13 @@ async def parse_subscribe_chip_tool_output():
                         log = ''.join(current_output)
                         data = delete_garbage(log)
                         if data and data.strip():
-                            tree = parse_chip_data(data)
-                            parsed_json = json.dumps(TreeToJson().transform(tree))
-                            print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
-                            await publish_to_all_websocket_clients(parsed_json)
-                            publish_to_mqtt_broker(mqtt_client, parsed_json)
+                            blocks = extract_named_blocks(data)
+                            for block in blocks:
+                                tree = parse_chip_data(block)
+                                parsed_json = json.dumps(TreeToJson().transform(tree))
+                                print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
+                                await publish_to_all_websocket_clients(parsed_json)
+                                publish_to_mqtt_broker(mqtt_client, parsed_json)
                             break
                 else:
                     current_output.append(line + '\n')
@@ -93,7 +95,6 @@ async def read_repl_output():
     global chip_tool_output
     while True:
         line = await chip_process.stdout.readline()
-        print(line.decode().strip())
         chip_tool_output += line.decode()
 
 async def process_requests():
@@ -105,11 +106,13 @@ async def process_requests():
             print(f"\033[1;34mCHIP:\033[0m     Processing command: {command}")
             chip_process.stdin.write(command.encode() + b'\n')
             await chip_process.stdin.drain()
-            parsed_json = await parse_chip_tool_output()
+            # parsed_json = await parse_chip_tool_output()
             if websocket:
-                await websocket.send_text(json.dumps(parsed_json))
+                # await websocket.send_text(json.dumps(parsed_json))
+                await websocket.send_text({"command": command, "status": "success"})
             elif future:
-                future.set_result(parsed_json)
+                future.set_result({"command": command, "status": "success"})
+                # future.set_result(parsed_json)
 
         except Exception as e:
             print(f"\033[1;34mCHIP:\033[0m     Error processing command: {command}")
@@ -134,7 +137,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(parse_subscribe_chip_tool_output())
     ]
 
-    await run_chip_tool_command("onoff subscribe on-off 10 100 1 1")
+    await run_chip_tool_command("onoff subscribe on-off 1 10 1 1")
 
     print("\033[1;34mCHIP:\033[0m     chip-tool REPL started.")
 
@@ -265,6 +268,7 @@ def delete_garbage(log):
             formatted_lines.append(' '.join(columns[3:]))
 
     formatted_string = ' '.join(formatted_lines)
+    print(f"\033[1;34mCHIP:\033[0m     Formatted string: {formatted_string}")
     return formatted_string
 
 class TreeToJson(Transformer):
@@ -329,3 +333,34 @@ def parse_chip_data(data):
 def print_tree_json(tree):
     parsed_json = json.dumps(TreeToJson().transform(tree), indent=4)
     print(parsed_json)
+
+def extract_named_blocks(text):
+    blocks = []
+    stack = []
+    current_block = ""
+    recording = False
+    key_start = None
+
+    for i, char in enumerate(text):
+        if char == '{':
+            if not stack:
+                key_match = re.search(r'(\w+)\s*=\s*$', text[:i].strip().splitlines()[-1])
+                if key_match:
+                    key_start = text.rfind(key_match.group(1), 0, i)
+                    current_block = text[key_start:i]
+                    recording = True
+            stack.append('{')
+            if recording:
+                current_block += '{'
+        elif char == '}':
+            stack.pop()
+            if recording:
+                current_block += '}'
+            if not stack and recording:
+                blocks.append(current_block.strip())
+                current_block = ""
+                recording = False
+        else:
+            if recording:
+                current_block += char
+    return blocks

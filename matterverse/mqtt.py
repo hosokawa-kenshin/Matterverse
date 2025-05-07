@@ -17,7 +17,6 @@ def on_message(client, userdata, msg):
             cluster = parts[4]
             command = parts[5]
 
-            print(f"{cluster} {command} {node_id} {endpoint_id}")
             asyncio.run_coroutine_threadsafe(run_chip_tool_command(f"{cluster} {command} {node_id} {endpoint_id}"), loop)
             print(f"\033[1;32mMQTT:\033[0m     Processing toggle command for device {node_id} with command {endpoint_id}")
 
