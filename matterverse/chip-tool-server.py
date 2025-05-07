@@ -26,11 +26,11 @@ class CommandRequest(BaseModel):
     command: str
 
 async def handle_shutdown():
-    print("Shutdown signal received. Stopping tasks...")
+    print("\033[1;34mCHIP:\033[0m     Shutdown signal received. Stopping tasks...")
     for task in asyncio.all_tasks():
         task.cancel()
     await asyncio.sleep(1)
-    print("All tasks cancelled. Exiting.")
+    print("\033[1;34mCHIP:\033[0m     All tasks cancelled. Exiting.")
 
 def shutdown_handler():
     asyncio.create_task(handle_shutdown())
@@ -56,7 +56,7 @@ async def parse_subscribe_chip_tool_output():
                         if data and data.strip():
                             tree = parse_chip_data(data)
                             parsed_json = TreeToJson().transform(tree)
-                            print("Received data: ", parsed_json)
+                            print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
                             for websocket in connected_clients:
                                 await websocket.send_text(json.dumps(parsed_json))
                             # mqtt_client.publish("dt/matter/1/1/onoff/toggle", json.dumps(parsed_json))
@@ -83,7 +83,7 @@ async def parse_chip_tool_output():
                         if data and data.strip():
                             tree = parse_chip_data(data)
                             parsed_json = TreeToJson().transform(tree)
-                            print("Received data: ", parsed_json)
+                            print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
                             return parsed_json
                 else:
                     current_output.append(line + '\n')
@@ -103,7 +103,7 @@ async def process_requests():
 
         try:
             websocket, command, future = await request_queue.get()
-            print(f"Processing command: {command}")
+            print(f"\033[1;34mCHIP:\033[0m     Processing command: {command}")
             chip_process.stdin.write(command.encode() + b'\n')
             await chip_process.stdin.drain()
             parsed_json = await parse_chip_tool_output()
@@ -113,14 +113,14 @@ async def process_requests():
                 future.set_result(parsed_json)
 
         except Exception as e:
-            print(f"Error processing command: {command}")
+            print(f"\033[1;34mCHIP:\033[0m     Error processing command: {command}")
             print(e)
 
         except asyncio.exceptions.CancelledError:
             break
 
 async def lifespan(app: FastAPI):
-    print("Starting chip-tool REPL...")
+    print("\033[1;34mCHIP:\033[0m     Starting chip-tool REPL...")
     global chip_process
     global mqtt_client
     global chip_tool_output
@@ -139,18 +139,18 @@ async def lifespan(app: FastAPI):
 
     await run_chip_tool_subscribe_command("onoff subscribe on-off 10 100 1 1")
 
-    print("chip-tool REPL started.")
+    print("\033[1;34mCHIP:\033[0m     chip-tool REPL started.")
 
     yield
 
-    print("Stopping chip-tool REPL...")
+    print("\033[1;34mCHIP:\033[0m     Stopping chip-tool REPL...")
     for task in tasks:
         task.cancel()
     chip_process.terminate()
     await asyncio.sleep(1)
     if chip_process.poll() is None:
         chip_process.kill()
-    print("chip-tool REPL stopped.")
+    print("\033[1;34mCHIP:\033[0m     chip-tool REPL stopped.")
     mqtt_client.loop_stop()
     mqtt_client.disconnect()
 
@@ -185,7 +185,7 @@ async def run_chip_tool_command(websocket: WebSocket):
 
 @app.post("/command")
 async def run_chip_tool_command(request: CommandRequest):
-    print(f"received command: {request.command}")
+    print(f"\033[1;34mCHIP:\033[0m     received command: {request.command}")
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, request.command, future))
     result = await future
@@ -243,7 +243,6 @@ def delete_garbage(log):
             formatted_lines.append(columns[3:])
 
     formatted_string = ' '.join([' '.join(line) for line in formatted_lines])
-    print("Formatted string: ", formatted_string)
     return formatted_string
 
 class TreeToJson(Transformer):
