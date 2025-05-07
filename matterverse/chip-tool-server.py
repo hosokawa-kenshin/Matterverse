@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import signal
 
-import paho.mqtt.client as mqtt
+from mqtt import mqtt_client, publish_to_mqtt_broker
 
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
@@ -42,7 +42,6 @@ loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
 async def parse_subscribe_chip_tool_output():
     global chip_tool_output
     global connected_clients
-    global mqtt_client
     while True:
         if "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output:
             lines = chip_tool_output.splitlines()
@@ -55,11 +54,10 @@ async def parse_subscribe_chip_tool_output():
                         data = delete_garbage(log)
                         if data and data.strip():
                             tree = parse_chip_data(data)
-                            parsed_json = TreeToJson().transform(tree)
+                            parsed_json = json.dumps(TreeToJson().transform(tree))
                             print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
-                            for websocket in connected_clients:
-                                await websocket.send_text(json.dumps(parsed_json))
-                            # mqtt_client.publish("dt/matter/1/1/onoff/toggle", json.dumps(parsed_json))
+                            await publish_to_all_websocket_clients(parsed_json)
+                            publish_to_mqtt_broker(mqtt_client, "dt/matter/1/1/onoff/toggle", parsed_json)
                             break
                 else:
                     current_output.append(line + '\n')
@@ -122,12 +120,10 @@ async def process_requests():
 async def lifespan(app: FastAPI):
     print("\033[1;34mCHIP:\033[0m     Starting chip-tool REPL...")
     global chip_process
-    global mqtt_client
     global chip_tool_output
     chip_tool_output = ""
     chip_process = await run_chip_tool()
 
-    mqtt_client = mqtt.Client(transport="websockets")
     mqtt_client.connect("172.23.81.17", port=9001, keepalive=60)
     mqtt_client.loop_start()
 
@@ -206,6 +202,11 @@ async def run_chip_tool():
     )
     return process
 
+async def publish_to_all_websocket_clients(message):
+    global connected_clients
+    for websocket in connected_clients:
+        await websocket.send_text(message)
+
 grammar = """
     statement: key "=" brackets
     brackets: "{" elements "}"
@@ -229,6 +230,7 @@ def delete_garbage(log):
     lines = []
     formatted_lines = []
     parsed_json = ""
+    node_id = ""
     for line in row_lines:
         line = line.strip()
         columns = line.split()
@@ -239,10 +241,21 @@ def delete_garbage(log):
         columns = line.split()
         if "Received Command Response Status" in line or "Subscription established with SubscriptionID" in line:
             continue
-        if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
-            formatted_lines.append(columns[3:])
 
-    formatted_string = ' '.join([' '.join(line) for line in formatted_lines])
+        if "IM:ReportData" in line:
+            match = re.search(r'from\s+\d+:(\w{16})', line)
+            if match:
+                node_id = match.group(1)
+                if node_id and not node_id.startswith("0x"):
+                    node_id = "0x" + node_id.lstrip("0")
+
+        if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
+            if "Endpoint =" in line:
+                node_id_str = "NodeID = " + node_id
+                formatted_lines.append(node_id_str.strip())
+            formatted_lines.append(' '.join(columns[3:]))
+
+    formatted_string = ' '.join(formatted_lines)
     return formatted_string
 
 class TreeToJson(Transformer):
