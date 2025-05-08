@@ -17,6 +17,7 @@ from mqtt import mqtt_client, publish_to_mqtt_broker
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
 COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
+MQTT_BROKER_URL = os.getenv('MQTT_BROKER_URL', 'localhost')
 
 connected_clients = set()
 request_queue = asyncio.Queue()
@@ -57,9 +58,9 @@ async def parse_subscribe_chip_tool_output():
                             for block in blocks:
                                 tree = parse_chip_data(block)
                                 parsed_json = json.dumps(TreeToJson().transform(tree))
-                                print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
-                                await publish_to_all_websocket_clients(parsed_json)
-                                publish_to_mqtt_broker(mqtt_client, parsed_json)
+                                if "ReportDataMessage" in parsed_json:
+                                    await publish_to_all_websocket_clients(parsed_json)
+                                    publish_to_mqtt_broker(mqtt_client, parsed_json)
                             break
                 else:
                     current_output.append(line + '\n')
@@ -128,7 +129,7 @@ async def lifespan(app: FastAPI):
     chip_tool_output = ""
     chip_process = await run_chip_tool()
 
-    mqtt_client.connect("172.23.81.17", port=9001, keepalive=60)
+    mqtt_client.connect(MQTT_BROKER_URL, port=9001, keepalive=60)
     mqtt_client.loop_start()
 
     tasks = [
@@ -210,6 +211,7 @@ async def publish_to_all_websocket_clients(message):
     global connected_clients
     for websocket in connected_clients:
         await websocket.send_text(message)
+    print(f"\033[1;34mCHIP:\033[0m     Published message to all connected clients: {message}")
 
 grammar = """
     statement: key "=" brackets
@@ -268,7 +270,6 @@ def delete_garbage(log):
             formatted_lines.append(' '.join(columns[3:]))
 
     formatted_string = ' '.join(formatted_lines)
-    print(f"\033[1;34mCHIP:\033[0m     Formatted string: {formatted_string}")
     return formatted_string
 
 class TreeToJson(Transformer):
