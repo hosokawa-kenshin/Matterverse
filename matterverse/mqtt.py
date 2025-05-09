@@ -1,4 +1,6 @@
 import paho.mqtt.client as mqtt
+import json
+import re
 
 def on_connect(client, userdata, flags, rc):
     print("\033[1;35mMQTT:\033[0m     Connected with result code " + str(rc))
@@ -14,16 +16,45 @@ def on_message(client, userdata, msg):
             from chip_tool_server import run_chip_tool_command, loop
             node_id = parts[2]
             endpoint_id = parts[3]
-            cluster = parts[4]
+            cluster_code = parts[4]
             command = parts[5]
 
-            asyncio.run_coroutine_threadsafe(run_chip_tool_command(f"{cluster} {command} {node_id} {endpoint_id}"), loop)
-            print(f"\033[1;35mMQTT:\033[0m     Processing toggle command for device {node_id} with command {endpoint_id}")
+            asyncio.run_coroutine_threadsafe(run_chip_tool_command(f"{cluster_code} {command} {node_id} {endpoint_id}"), loop)
+            print(f"\033[1;35mMQTT:\033[0m     Processing toggle command for device {node_id} with command {endpoint_id}...")
 
-def publish_to_mqtt_broker(client, json):
-    #TODO generate topic from json
-    topic = "dt/matter/1/1/onoff/toggle"
-    result = client.publish(topic, json)
+def publish_to_mqtt_broker(client, json_str):
+    from chip_tool_server import all_clusters
+    global all_clusters
+    json_data = json.loads(json_str)
+
+    report_data = json_data.get("ReportDataMessage", {})
+    attribute_report = report_data.get("AttributeReportIBs", [{}])[0].get("AttributeReportIB", {})
+    attribute_data = attribute_report.get("AttributeDataIB", {})
+    attribute_path = attribute_data.get("AttributePathIB", {})
+
+    node_id = attribute_path.get("NodeID")
+    endpoint = attribute_path.get("Endpoint")
+    cluster_code = attribute_path.get("Cluster")
+    cluster_code = f"0x{int(cluster_code):04X}"
+    attribute_code = attribute_path.get("Attribute")
+    attribute_code = f"0x{int(attribute_code):04X}"
+
+    cluster = all_clusters.get(cluster_code, {})
+    cluster_name = cluster.get("name")
+    if cluster_name:
+        cluster_name = cluster_name.lower().replace("/", "")
+
+    attribute_name = None
+    for attr in cluster.get("attributes", []):
+        if attr["code"] == attribute_code:
+            attribute_name = attr["name"]
+            break
+    if attribute_name:
+        attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
+
+    topic = f"dt/matter/{node_id}/{endpoint}/{cluster_name}/{attribute_name}"
+    print(f"\033[1;35mMQTT:\033[0m     Publishing to MQTT broker with topic: {topic}")
+    result = client.publish(topic, json_str)
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         print("\033[1;35mMQTT:\033[0m     MQTT publish successful.")
     else:

@@ -11,13 +11,14 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import signal
-
 from mqtt import mqtt_client, publish_to_mqtt_broker
+from matter_xml_parser import parse_clusters_from_directory
 
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
 COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 MQTT_BROKER_URL = os.getenv('MQTT_BROKER_URL', 'localhost')
+xml_directory = "../sdk/src/app/zap-templates/zcl/data-model/chip"
 
 connected_clients = set()
 request_queue = asyncio.Queue()
@@ -58,7 +59,8 @@ async def parse_subscribe_chip_tool_output():
                             for block in blocks:
                                 tree = parse_chip_data(block)
                                 parsed_json = json.dumps(TreeToJson().transform(tree))
-                                if "ReportDataMessage" in parsed_json:
+                                if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
+                                    print("\033[1;34mCHIP:\033[0m     Subscribe response received.")
                                     await publish_to_all_websocket_clients(parsed_json)
                                     publish_to_mqtt_broker(mqtt_client, parsed_json)
                             break
@@ -126,6 +128,9 @@ async def lifespan(app: FastAPI):
     print("\033[1;34mCHIP:\033[0m     Starting chip-tool REPL...")
     global chip_process
     global chip_tool_output
+    global all_clusters
+
+    all_clusters = parse_clusters_from_directory(xml_directory)
     chip_tool_output = ""
     chip_process = await run_chip_tool()
 
@@ -211,7 +216,7 @@ async def publish_to_all_websocket_clients(message):
     global connected_clients
     for websocket in connected_clients:
         await websocket.send_text(message)
-    print(f"\033[1;34mCHIP:\033[0m     Published message to all connected clients: {message}")
+    print(f"\033[1;31mWS:\033[0m       Published message to all connected clients.")
 
 grammar = """
     statement: key "=" brackets
@@ -261,7 +266,6 @@ def delete_garbage(log):
                 node_id = match.group(1)
                 if node_id and not node_id.startswith("0x"):
                     node_id = "0x" + node_id.lstrip("0")
-                    print(f"NodeID: {node_id}")
 
         if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
             if "Endpoint =" in line or "EndpointId =" in line:
