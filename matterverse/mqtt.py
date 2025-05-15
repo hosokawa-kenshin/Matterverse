@@ -3,13 +3,14 @@ import json
 import re
 
 def on_connect(client, userdata, flags, rc):
-    print("\033[1;35mMQTT:\033[0m     Connected with result code " + str(rc))
+    print("\033[1;35mMQTT\033[0m:     Connected with result code " + str(rc))
+    client.subscribe("homie/+/+/+/set")
     client.subscribe("cmd/matter/+/+/onoff/toggle")
 
 import asyncio
 
 def on_message(client, userdata, msg):
-    print(f"\033[1;35mMQTT:\033[0m     Message received: {msg.topic} {msg.payload}")
+    print(f"\033[1;35mMQTT\033[0m:     Message received: {msg.topic} {msg.payload}")
     if msg.topic.startswith("cmd/matter/"):
         parts = msg.topic.split("/")
         if len(parts) == 6:
@@ -20,7 +21,23 @@ def on_message(client, userdata, msg):
             command = parts[5]
 
             asyncio.run_coroutine_threadsafe(run_chip_tool_command(f"{cluster_code} {command} {node_id} {endpoint_id}"), loop)
-            print(f"\033[1;35mMQTT:\033[0m     Processing toggle command for device {node_id} with command {endpoint_id}...")
+            print(f"\033[1;35mMQTT\033[0m:     Processing toggle command for device {node_id} with command {endpoint_id}...")
+
+    elif msg.topic.endswith("/set"):
+        match = re.match(r"homie/(\d+)/(\d+)/(\w+)/set", msg.topic)
+        if match:
+            node_id, endpoint_id, cluster_name = match.groups()
+            value = msg.payload.decode().lower()
+            if cluster_name == "onoff":
+                command = "on" if value == "true" else "off"
+                asyncio.run_coroutine_threadsafe(
+                    run_chip_tool_command(f"{cluster_name} {command} {node_id} {endpoint_id}"), loop
+                )
+            else:
+                asyncio.run_coroutine_threadsafe(
+                    run_chip_tool_command(f"{cluster_name} write {node_id} {endpoint_id}"), loop
+                )
+            print(f"\033[1;35mMQTT\033[0m:     Homie set received: {command} on {node_id}:{endpoint_id}")
 
 def publish_to_mqtt_broker(client, json_str):
     from chip_tool_server import all_clusters
@@ -53,12 +70,12 @@ def publish_to_mqtt_broker(client, json_str):
         attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
 
     topic = f"dt/matter/{node_id}/{endpoint}/{cluster_name}/{attribute_name}"
-    print(f"\033[1;35mMQTT:\033[0m     Publishing to MQTT broker with topic: {topic}")
+    print(f"\033[1;35mMQTT\033[0m:     Publishing to MQTT broker with topic: {topic}")
     result = client.publish(topic, json_str)
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
-        print("\033[1;35mMQTT:\033[0m     MQTT publish successful.")
+        print("\033[1;35mMQTT\033[0m:     MQTT publish successful.")
     else:
-        print("\033[1;31mMQTT:\033[0m     MQTT publish failed with result code:", result.rc)
+        print("\033[1;31mMQTT\033[0m:     MQTT publish failed with result code:", result.rc)
 
 mqtt_client = mqtt.Client(transport="websockets")
 mqtt_client.on_connect = on_connect

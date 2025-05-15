@@ -28,11 +28,11 @@ class CommandRequest(BaseModel):
     command: str
 
 async def handle_shutdown():
-    print("\033[1;34mCHIP:\033[0m     Shutdown signal received. Stopping tasks...")
+    print("\033[1;34mCHIP\033[0m:     Shutdown signal received. Stopping tasks...")
     for task in asyncio.all_tasks():
         task.cancel()
     await asyncio.sleep(1)
-    print("\033[1;34mCHIP:\033[0m     All tasks cancelled. Exiting.")
+    print("\033[1;34mCHIP\033[0m:     All tasks cancelled. Exiting.")
 
 def shutdown_handler():
     asyncio.create_task(handle_shutdown())
@@ -57,10 +57,18 @@ async def parse_subscribe_chip_tool_output():
                         if data and data.strip():
                             blocks = extract_named_blocks(data)
                             for block in blocks:
-                                tree = parse_chip_data(block)
-                                parsed_json = json.dumps(TreeToJson().transform(tree))
+                                try:
+                                    tree = parse_chip_data(block)
+                                    parsed_json = json.dumps(TreeToJson().transform(tree))
+                                    print("\033[1;34mCHIP\033[0m:     Received data: ", parsed_json)
+                                except Exception as e:
+                                    print(f"\033[1;34mCHIP\033[0m:     Error parsing data: {e}")
+                                    continue
                                 if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
-                                    print("\033[1;34mCHIP:\033[0m     Subscribe response received.")
+                                    if '"Endpoint": 0, "Cluster": 40' in parsed_json:
+                                        print("\033[1;34mCHIP\033[0m:     Unique ID detected: ", parsed_json)
+                                        continue
+                                    print("\033[1;34mCHIP\033[0m:     Subscribe response received.")
                                     await publish_to_all_websocket_clients(parsed_json)
                                     publish_to_mqtt_broker(mqtt_client, parsed_json)
                             break
@@ -86,7 +94,7 @@ async def parse_chip_tool_output():
                         if data and data.strip():
                             tree = parse_chip_data(data)
                             parsed_json = TreeToJson().transform(tree)
-                            print("\033[1;34mCHIP:\033[0m     Received data: ", parsed_json)
+                            print("\033[1;34mCHIP\033[0m:     Received data: ", parsed_json)
                             return parsed_json
                 else:
                     current_output.append(line + '\n')
@@ -106,7 +114,7 @@ async def process_requests():
 
         try:
             websocket, command, future = await request_queue.get()
-            print(f"\033[1;34mCHIP:\033[0m     Processing command: {command}")
+            print(f"\033[1;34mCHIP\033[0m:     Processing command: {command}")
             chip_process.stdin.write(command.encode() + b'\n')
             await chip_process.stdin.drain()
             # parsed_json = await parse_chip_tool_output()
@@ -118,14 +126,14 @@ async def process_requests():
                 # future.set_result(parsed_json)
 
         except Exception as e:
-            print(f"\033[1;34mCHIP:\033[0m     Error processing command: {command}")
+            print(f"\033[1;34mCHIP\033[0m:     Error processing command: {command}")
             print(e)
 
         except asyncio.exceptions.CancelledError:
             break
 
 async def lifespan(app: FastAPI):
-    print("\033[1;34mCHIP:\033[0m     Starting chip-tool REPL...")
+    print("\033[1;34mCHIP\033[0m:     Starting chip-tool REPL...")
     global chip_process
     global chip_tool_output
     global all_clusters
@@ -145,18 +153,18 @@ async def lifespan(app: FastAPI):
 
     await run_chip_tool_command("onoff subscribe on-off 1 10 1 1")
 
-    print("\033[1;34mCHIP:\033[0m     chip-tool REPL started.")
+    print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
     yield
 
-    print("\033[1;34mCHIP:\033[0m     Stopping chip-tool REPL...")
+    print("\033[1;34mCHIP\033[0m:     Stopping chip-tool REPL...")
     for task in tasks:
         task.cancel()
     chip_process.terminate()
     await asyncio.sleep(1)
     if chip_process.poll() is None:
         chip_process.kill()
-    print("\033[1;34mCHIP:\033[0m     chip-tool REPL stopped.")
+    print("\033[1;34mCHIP\033[0m:     chip-tool REPL stopped.")
     mqtt_client.loop_stop()
     mqtt_client.disconnect()
 
@@ -191,7 +199,7 @@ async def run_chip_tool_command_ws(websocket: WebSocket):
 
 @app.post("/command")
 async def run_chip_tool_command_post(request: CommandRequest):
-    print(f"\033[1;34mCHIP:\033[0m     received command: {request.command}")
+    print(f"\033[1;34mCHIP\033[0m:     received command: {request.command}")
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, request.command, future))
     result = await future
@@ -216,7 +224,7 @@ async def publish_to_all_websocket_clients(message):
     global connected_clients
     for websocket in connected_clients:
         await websocket.send_text(message)
-    print(f"\033[1;31mWS:\033[0m       Published message to all connected clients.")
+    print(f"\033[1;31mWS  \033[0m:     Published message to all connected clients.")
 
 grammar = """
     statement: key "=" brackets
@@ -224,11 +232,12 @@ grammar = """
     array: "[" elements "]"
     elements: (element | array | brackets)*
     element: key "=" value | number code
-    value: number | string | brackets | array | number code
-    code: "(" string ")"
-    key: /[a-zA-Z_][a-zA-Z0-9_]*/
+    value: number | string | brackets | array | number code | string code
+    code: "(" string ")" | "(" description ")"
+    key: /[a-zA-Z_][a-zA-Z0-9_]*/ | /0x[0-9a-fA-F_]+/
     number: /0x[0-9a-fA-F_]+/ | /\d+/
-    string: /[a-zA-Z]+/
+    string: /[a-zA-Z0-9]+/
+    description: /[a-zA-Z0-9]+[ ]+[a-zA-Z0-9]+/
     %ignore " "
     %ignore /\t/
     %ignore /\\r?\\n/
@@ -237,6 +246,7 @@ grammar = """
 def delete_garbage(log):
     log = re.sub(r'\x1b\[[0-9;]*m', '', log)
     log = re.sub(r',', '', log)
+    log = re.sub(r'"', '', log)
     row_lines = log.splitlines()
     lines = []
     formatted_lines = []
@@ -317,7 +327,11 @@ class TreeToJson(Transformer):
         return key, value
 
     def elements(self, items):
+
         if len(items) == 1 and isinstance(items[0], list):
+            return items[0]
+
+        if len(items) == 1 and isinstance(items[0],dict):
             return items[0]
 
         if all(isinstance(item, tuple) and isinstance(item[0], int) and item[1] == "unsigned" for item in items):
@@ -326,6 +340,11 @@ class TreeToJson(Transformer):
             return result
 
         result = {}
+        if all(isinstance(item, tuple)for item in items):
+            for item in items:
+                result[item[0]] = item[1]
+            return result
+
         for key, value in items:
             result[key] = value
         return result
