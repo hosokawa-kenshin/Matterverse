@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import signal
 from mqtt import mqtt_client, publish_to_mqtt_broker
 from matter_xml_parser import parse_clusters_from_directory
+from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id
+import hashlib
 
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
@@ -22,7 +24,7 @@ xml_directory = "../sdk/src/app/zap-templates/zcl/data-model/chip"
 
 connected_clients = set()
 request_queue = asyncio.Queue()
-
+response_queue = asyncio.Queue()
 
 class CommandRequest(BaseModel):
     command: str
@@ -44,13 +46,14 @@ loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
 async def parse_subscribe_chip_tool_output():
     global chip_tool_output
     global connected_clients
+    print("\033[1;34mCHIP\033[0m:     Start parsing chip-tool output")
     while True:
-        if "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output:
+        if "[TOO] Endpoint: " in chip_tool_output or "Received Command Response Status" in chip_tool_output or "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
             current_output = []
             for line in lines:
-                if "Refresh LivenessCheckTime for" in line or "Subscription established with SubscriptionID" in chip_tool_output:
+                if "Received Command Response Status" in line or "[TOO] Endpoint:" in line or "Refresh LivenessCheckTime for" in line or "Subscription established with SubscriptionID" in line:
                     if current_output:
                         log = ''.join(current_output)
                         data = delete_garbage(log)
@@ -65,19 +68,16 @@ async def parse_subscribe_chip_tool_output():
                                     print(f"\033[1;34mCHIP\033[0m:     Error parsing data: {e}")
                                     continue
                                 if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
-                                    if '"Endpoint": 0, "Cluster": 40' in parsed_json:
-                                        print("\033[1;34mCHIP\033[0m:     Unique ID detected: ", parsed_json)
-                                        continue
-                                    print("\033[1;34mCHIP\033[0m:     Subscribe response received.")
                                     await publish_to_all_websocket_clients(parsed_json)
                                     publish_to_mqtt_broker(mqtt_client, parsed_json)
+                                await response_queue.put(parsed_json)
                             break
                 else:
                     current_output.append(line + '\n')
             current_output = []
             await asyncio.sleep(0.1)
         else:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(2)
 
 async def parse_chip_tool_output():
     global chip_tool_output
@@ -132,6 +132,61 @@ async def process_requests():
         except asyncio.exceptions.CancelledError:
             break
 
+def generate_hash(node_id, unique_id, endpoint):
+    combined = f"{node_id}-{unique_id}-{endpoint}"
+    return hashlib.sha256(combined.encode()).hexdigest()
+
+async def commissioning_device(node_id):
+
+    command = f"basicinformation read unique-id {node_id} 0"
+    await run_chip_tool_command(command)
+    while True:
+        json_str = await response_queue.get()
+        json_data = json.loads(json_str)
+        node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+
+        if node_id == node:
+            unique_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
+            break
+        else:
+            continue
+    insert_unique_id_to_database(node_id, unique_id)
+
+
+    command = f"descriptor read parts-list {node_id} 0"
+    await run_chip_tool_command(command)
+    while True:
+        json_str = await response_queue.get()
+        json_data = json.loads(json_str)
+        node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+
+        if node_id == node:
+            endpoints = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
+        else:
+            continue
+
+        break
+
+    for endpoint in endpoints:
+        topic_id = generate_hash(node_id, unique_id, endpoint)
+        command = f"descriptor read device-type-list {node_id} {endpoint}"
+        await run_chip_tool_command(command)
+        while True:
+            json_str = await response_queue.get()
+            json_data = json.loads(json_str)
+            node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+
+            if node_id == node:
+                devicetypes = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"][0]
+                break
+            else:
+                continue
+
+        devicetype = int(devicetypes.get("0x0"))
+        insert_device_to_database(node_id, endpoint, devicetype, topic_id)
+
+
+
 async def lifespan(app: FastAPI):
     print("\033[1;34mCHIP\033[0m:     Starting chip-tool REPL...")
     global chip_process
@@ -151,22 +206,26 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(parse_subscribe_chip_tool_output())
     ]
 
-    await run_chip_tool_command("onoff subscribe on-off 1 10 1 1")
-
+    # await run_chip_tool_command("onoff subscribe on-off 1 10 1 1")
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
     yield
 
     print("\033[1;34mCHIP\033[0m:     Stopping chip-tool REPL...")
+
     for task in tasks:
         task.cancel()
+
     chip_process.terminate()
     await asyncio.sleep(1)
+
     if chip_process.poll() is None:
         chip_process.kill()
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL stopped.")
+
     mqtt_client.loop_stop()
     mqtt_client.disconnect()
+    close_database_connection()
 
 app = FastAPI(lifespan=lifespan)
 
