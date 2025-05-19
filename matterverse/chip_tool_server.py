@@ -12,15 +12,19 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import signal
 from mqtt import mqtt_client, publish_to_mqtt_broker
-from matter_xml_parser import parse_clusters_from_directory
+from matter_xml_parser import parse_clusters_info
 from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id
+from subscribe import subscribe_devices
 import hashlib
 
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
 COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 MQTT_BROKER_URL = os.getenv('MQTT_BROKER_URL', 'localhost')
-xml_directory = "../sdk/src/app/zap-templates/zcl/data-model/chip"
+current_directory = os.getcwd()
+cluster_xml = "../sdk/src/app/zap-templates/zcl/data-model/chip"
+device_type_xml = "../sdk/src/app/zap-templates/zcl/data-model/chip/matter-devices.xml"
+paa_root_cert = f"{current_directory}/../sdk/paa-root-certs"
 
 connected_clients = set()
 request_queue = asyncio.Queue()
@@ -136,7 +140,7 @@ def generate_hash(node_id, unique_id, endpoint):
     combined = f"{node_id}-{unique_id}-{endpoint}"
     return hashlib.sha256(combined.encode()).hexdigest()
 
-async def commissioning_device(node_id):
+async def register_device_to_database(node_id):
 
     command = f"basicinformation read unique-id {node_id} 0"
     await run_chip_tool_command(command)
@@ -185,15 +189,13 @@ async def commissioning_device(node_id):
         devicetype = int(devicetypes.get("0x0"))
         insert_device_to_database(node_id, endpoint, devicetype, topic_id)
 
-
-
 async def lifespan(app: FastAPI):
     print("\033[1;34mCHIP\033[0m:     Starting chip-tool REPL...")
     global chip_process
     global chip_tool_output
     global all_clusters
 
-    all_clusters = parse_clusters_from_directory(xml_directory)
+    all_clusters = parse_clusters_info(cluster_xml)
     chip_tool_output = ""
     chip_process = await run_chip_tool()
 
@@ -206,6 +208,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(parse_subscribe_chip_tool_output())
     ]
 
+    await subscribe_devices()
     # await run_chip_tool_command("onoff subscribe on-off 1 10 1 1")
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
@@ -259,6 +262,8 @@ async def run_chip_tool_command_ws(websocket: WebSocket):
 @app.post("/command")
 async def run_chip_tool_command_post(request: CommandRequest):
     print(f"\033[1;34mCHIP\033[0m:     received command: {request.command}")
+    if "pairing" in request.command:
+        request.command = request.command + f" --paa-trust-store-path {paa_root_cert}"
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, request.command, future))
     result = await future

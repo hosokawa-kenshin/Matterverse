@@ -32,6 +32,27 @@ def get_database_connection():
         print("\033[1;36mSQL \033[0m:     Database initialized")
     return _conn, _cursor
 
+def get_devices_from_database():
+    conn, cursor = get_database_connection()
+    try:
+        cursor.execute("""
+        SELECT NodeID, Endpoint, DeviceType, TopicID FROM Device
+        """)
+        devices = cursor.fetchall()
+        devices_list = []
+        for device in devices:
+            devices_list.append(
+                {
+                    "NodeID": device[0],
+                    "Endpoint": device[1],
+                    "DeviceType": device[2],
+                    "TopicID": device[3],
+                })
+        return devices_list
+    except sqlite3.Error as e:
+        print(f"\033[1;36mSQL \033[0m:     Query Error:", e)
+        return []
+
 def get_endpoints_by_node_id(node_id):
     conn, cursor = get_database_connection()
     try:
