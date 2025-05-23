@@ -43,11 +43,11 @@ def parse_cluster_info(cluster_elem):
     for attr in cluster_elem.findall("attribute"):
         cluster["attributes"].append({
             "code": attr.get("code"),
-            "name": attr.text.strip() if attr.text else None,
-            "type": attr.get("type"),
+            "name": attr.text if attr.text else None,
+            "type": attr.get("type").lower() if attr.get("type") else None,
             "define": attr.get("define"),
             "side": attr.get("side"),
-        })
+        }) if attr.get("code").startswith("0x0") else None
 
     for cmd in cluster_elem.findall("command"):
         command = {
@@ -66,8 +66,9 @@ def parse_cluster_info(cluster_elem):
     return cluster
 
 def parse_clusters_info(xml_dir):
-    clusters = []
+    global all_clusters
 
+    all_clusters = []
     for filename in os.listdir(xml_dir):
         if filename.endswith(".xml"):
             path = os.path.join(xml_dir, filename)
@@ -75,6 +76,6 @@ def parse_clusters_info(xml_dir):
             root = tree.getroot()
             for cluster_elem in root.findall("cluster"):
                 cluster = parse_cluster_info(cluster_elem)
-                clusters.append(cluster)
+                all_clusters.append(cluster)
 
-    return clusters
+    return all_clusters

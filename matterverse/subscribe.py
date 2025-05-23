@@ -2,176 +2,8 @@ import os
 import re
 from database import get_devices_from_database
 from matter_xml_parser import parse_device_type_info, parse_clusters_info
-
-def get_cluster_by_device_type(device_type):
-    cluster_mapping = {
-        "0x0016": [
-            "Access Control", "Basic Information", "General Commissioning",
-            "Power Source Configuration", "Time Synchronization", "Group Key Management",
-            "Network Commissioning", "Administrator Commissioning", "Operational Credentials",
-            "Localization Configuration", "Time Format Localization", "Unit Localization",
-            "General Diagnostics", "Diagnostic Logs", "Software Diagnostics",
-            "Ethernet Network Diagnostics", "Wi-Fi Network Diagnostics", "Thread Network Diagnostics",
-            "ICD Management",
-        ],
-        "0x0011": ["Power Source"],
-        "0x0510": [
-            "Power Topology", "Electrical Energy Measurement", "Electrical Power Measurement",
-        ],
-        "0x0012": [
-            "OTA Software Update Requestor", "OTA Software Update Provider",
-        ],
-        "0x0014": [
-            "OTA Software Update Provider", "OTA Software Update Requestor",
-        ],
-        "0x000e": ["Actions"],
-        "0x0013": [
-            "Bridged Device Basic Information", "Power Source Configuration", "Power Source",
-        ],
-        "0x0100": ["On/Off"],
-        "0x0101": ["On/Off", "Level Control"],
-        "0x010C": ["On/Off", "Level Control", "Color Control"],
-        "0x010D": ["On/Off", "Level Control", "Color Control"],
-        "0x010A": ["On/Off"],
-        "0x010B": ["On/Off", "Level Control"],
-        "0x0303": [
-            "On/Off", "Pump Configuration and Control", "Level Control", "Temperature Measurement",
-            "Pressure Measurement", "Flow Measurement", "Occupancy Sensing",
-        ],
-        "0x0103": ["On/Off"],
-        "0x0104": ["On/Off", "Level Control"],
-        "0x0105": ["On/Off", "Level Control", "Color Control"],
-        "0x0840": [
-            "On/Off", "Level Control", "Color Control", "Illuminance Measurement", "Occupancy Sensing",
-        ],
-        "0x0304": [
-            "On/Off", "Pump Configuration and Control", "Level Control", "Temperature Measurement",
-            "Pressure Measurement", "Flow Measurement",
-        ],
-        "0x000f": ["Switch"],
-        "0x0015": ["Boolean State"],
-        "0x0106": ["Illuminance Measurement"],
-        "0x0107": ["Occupancy Sensing"],
-        "0x0302": ["Temperature Measurement"],
-        "0x0305": ["Pressure Measurement"],
-        "0x0306": ["Flow Measurement"],
-        "0x0307": ["Relative Humidity Measurement"],
-        "0x0850": ["On/Off"],
-        "0x000A": ["Door Lock"],
-        "0x000B": ["Door Lock"],
-        "0x0202": ["Window Covering"],
-        "0x0203": ["Window Covering"],
-        "0x0300": ["Thermostat", "On/Off", "Level Control"],
-        "0x0301": [
-            "Thermostat", "Thermostat User Interface Configuration", "Fan Control",
-            "Temperature Measurement", "Occupancy Sensing", "Relative Humidity Measurement",
-        ],
-        "0x002B": ["Fan Control"],
-        "0x0023": [
-            "Media Playback", "Keypad Input", "Application Launcher", "Media Input", "On/Off",
-            "Channel", "Audio Output", "Low Power", "Wake on LAN", "Target Navigator",
-            "Account Login", "Content Launcher",
-        ],
-        "0x0028": [
-            "Media Playback", "Keypad Input", "Media Input", "On/Off", "Channel",
-            "Audio Output", "Low Power", "Wake on LAN", "Target Navigator",
-        ],
-        "0x0029": [
-            "Media Playback", "Content Launcher", "Keypad Input",
-            "Account Login", "On/Off", "Level Control", "Wake on LAN", "Channel", "Target Navigator",
-            "Media Input", "Low Power", "Audio Output", "Application Launcher", "Application Basic",
-        ],
-        "0x002A": [
-            "Media Playback", "Content Launcher", "Keypad Input",
-            "Account Login", "On/Off", "Level Control", "Wake on LAN", "Channel", "Target Navigator",
-            "Media Input", "Low Power", "Audio Output", "Application Launcher",
-        ],
-        "0x0022": ["On/Off", "Level Control"],
-        "0x0024": [
-            "Application Basic", "Keypad Input", "Application Launcher",
-            "Account Login", "Content Launcher", "Media Playback", "Target Navigator", "Channel",
-        ],
-        "0x0027": ["Mode Select"],
-        "0x0072": [
-            "On/Off", "Groups", "Scenes Management", "Thermostat",
-            "Thermostat User Interface Configuration", "Fan Control", "Temperature Measurement",
-            "Relative Humidity Measurement",
-        ],
-        "0x0076": [
-            "Groups", "Smoke CO Alarm", "Relative Humidity Measurement",
-            "Temperature Measurement", "Carbon Monoxide Concentration Measurement", "Power Source",
-                    ],
-        "0x002D": [
-            "Groups", "Fan Control", "HEPA Filter Monitoring",
-            "Activated Carbon Filter Monitoring",
-        ],
-        "0x002C": [
-            "Air Quality", "Temperature Measurement",
-            "Relative Humidity Measurement", "Carbon Monoxide Concentration Measurement",
-            "Carbon Dioxide Concentration Measurement", "Nitrogen Dioxide Concentration Measurement",
-            "Ozone Concentration Measurement", "Formaldehyde Concentration Measurement",
-            "PM1 Concentration Measurement", "PM2.5 Concentration Measurement",
-            "PM10 Concentration Measurement", "Radon Concentration Measurement",
-            "Total Volatile Organic Compounds Concentration Measurement",
-        ],
-        "0x0075": [
-            "On/Off", "Temperature Control", "Dishwasher Mode",
-            "Dishwasher Alarm", "Operational State",
-        ],
-        "0x007B": [],
-        "0x0079": [
-            "Fan Control", "Microwave Oven Mode", "Microwave Oven Control",
-            "Operational State",
-        ],
-        "0x0070": [
-            "Refrigerator And Temperature Controlled Cabinet Mode",
-            "Refrigerator Alarm",
-        ],
-        "0x0073": [
-            "On/Off", "Laundry Washer Mode", "Laundry Washer Controls",
-            "Temperature Control", "Operational State",
-        ],
-        "0x007C": [
-            "On/Off", "Laundry Washer Mode", "Laundry Dryer Controls",
-            "Temperature Control", "Operational State",
-        ],
-        "0x007A": [
-            "HEPA Filter Monitoring", "Activated Carbon Filter Monitoring",
-            "Fan Control",
-        ],
-        "0x0074": [
-            "RVC Run Mode", "RVC Clean Mode", "RVC Operational State",
-            "Service Area",
-        ],
-        "0x0071": [
-            "Temperature Control", "Temperature Measurement",
-            "Refrigerator And Temperature Controlled Cabinet Mode", "Oven Mode",
-            "Oven Cavity Operational State",
-        ],
-        "0x0041": ["Boolean State", "Boolean State Configuration"],
-        "0x0042": ["Valve Configuration and Control"],
-        "0x0043": ["Boolean State", "Boolean State Configuration"],
-        "0x0044": ["Boolean State", "Boolean State Configuration"],
-        "0x0090": [
-            "Thread Network Directory", "Wi-Fi Network Management",
-            "Thread Border Router Management",
-        ],
-        "0x0091": ["Thread Network Diagnostics", "Thread Border Router Management"],
-        "0xFFF10003": [
-            "Color Control", "Door Lock", "Groups",
-            "Level Control", "On/Off", "Scenes Management", "Temperature Measurement",
-        ],
-        "0x0019": [
-            "Network Commissioning", "Ethernet Network Diagnostics",
-            "Wi-Fi Network Diagnostics", "Thread Network Diagnostics",
-        ],
-        "0x0078": ["On/Off"],
-        "0x0077": ["On/Off", "Temperature Control", "Temperature Measurement"],
-        "0x050C": [
-            "Energy EVSE", "Energy EVSE Mode", "Temperature Measurement",
-        ],
-    }
-    return cluster_mapping.get(device_type, "unknown")
+from matter_utils import get_cluster_by_device_type, get_cluster_name_by_code
+import json
 
 async def subscribe_devices():
     devices = get_devices_from_database()
@@ -181,7 +13,7 @@ async def subscribe_devices():
         device_type = device.get("DeviceType")
         device_type = f"0x{int(device_type):04X}"
         clusters = get_cluster_by_device_type(device_type)
-        from chip_tool_server import all_clusters
+        from matter_xml_parser import all_clusters
         for cluster in clusters:
             cluster_info = next((item for item in all_clusters if item.get("name") == cluster), None)
             if cluster_info:
@@ -191,6 +23,20 @@ async def subscribe_devices():
                     if attribute_name != '':
                         attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
                         cluster_name = cluster.lower().replace("/", "")
-                        command = f"{cluster_name} read {attribute_name} {node} {endpoint}"
+                        command = f"{cluster_name} subscribe {attribute_name} 1 100 {node} {endpoint}"
                         from chip_tool_server import run_chip_tool_command
+                        from chip_tool_server import response_queue
                         await run_chip_tool_command(command)
+                        while True:
+                            print(f"\033[1;34mCHIP\033[0m:     Waiting for response for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
+                            json_str = await response_queue.get()
+                            json_data = json.loads(json_str)
+                            node_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+                            endpoint_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Endpoint"]
+                            cluster_code = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Cluster"]
+                            attribute_code = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Attribute"]
+                            cluster_code = f"0x{int(cluster_code):04X}"
+                            attribute_code = f"0x{int(attribute_code):04X}"
+                            if node == node_id and endpoint == endpoint_id and cluster_info.get("id") == cluster_code and attribute.get("code") == attribute_code:
+                                print(f"\033[1;34mCHIP\033[0m:     Subscribe executed for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
+                                break

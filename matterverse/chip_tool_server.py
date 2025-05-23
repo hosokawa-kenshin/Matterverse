@@ -11,9 +11,9 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import signal
-from mqtt import mqtt_client, publish_to_mqtt_broker
+from mqtt import mqtt_client, publish_to_mqtt_broker, create_homie_devices, disconnect_mqtt
 from matter_xml_parser import parse_clusters_info
-from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id
+from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id, get_new_node_id_from_database
 from subscribe import subscribe_devices
 import hashlib
 
@@ -21,10 +21,10 @@ load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
 COMMISSIONING_DIR = os.getenv('COMMISSIONING_DIR', './commitioning_dir')
 MQTT_BROKER_URL = os.getenv('MQTT_BROKER_URL', 'localhost')
-current_directory = os.getcwd()
-cluster_xml = "../sdk/src/app/zap-templates/zcl/data-model/chip"
-device_type_xml = "../sdk/src/app/zap-templates/zcl/data-model/chip/matter-devices.xml"
-paa_root_cert = f"{current_directory}/../sdk/paa-root-certs"
+
+cluster_xml = os.getenv('CLUSTER_XML_DIR', '../sdk/src/app/zap-templates/zcl/data-model/chip/matter-clusters.xml')
+device_type_xml = os.getenv('DEVICETYPE_XML_FILE', '../sdk/src/app/zap-templates/zcl/data-model/chip/matter-device-types.xml')
+paa_root_cert = os.getenv('PAA_CERT_DIR_PATH', '../sdk/credentials/paa_root_cert')
 
 connected_clients = set()
 request_queue = asyncio.Queue()
@@ -34,11 +34,12 @@ class CommandRequest(BaseModel):
     command: str
 
 async def handle_shutdown():
-    print("\033[1;34mCHIP\033[0m:     Shutdown signal received. Stopping tasks...")
-    for task in asyncio.all_tasks():
-        task.cancel()
-    await asyncio.sleep(1)
-    print("\033[1;34mCHIP\033[0m:     All tasks cancelled. Exiting.")
+    global chip_process
+    chip_process.kill()
+    print("\033[1;34mCHIP\033[0m:     chip-tool REPL stopped.")
+    disconnect_mqtt(mqtt_client)
+    close_database_connection()
+    exit(0)
 
 def shutdown_handler():
     asyncio.create_task(handle_shutdown())
@@ -140,9 +141,8 @@ def generate_hash(node_id, unique_id, endpoint):
     combined = f"{node_id}-{unique_id}-{endpoint}"
     return hashlib.sha256(combined.encode()).hexdigest()
 
-async def register_device_to_database(node_id):
-
-    command = f"basicinformation read unique-id {node_id} 0"
+async def get_basic_info_over_matter(node_id, attribute):
+    command = f"basicinformation read {attribute} {node_id} 0"
     await run_chip_tool_command(command)
     while True:
         json_str = await response_queue.get()
@@ -150,13 +150,13 @@ async def register_device_to_database(node_id):
         node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
 
         if node_id == node:
-            unique_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
+            value = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
             break
         else:
             continue
-    insert_unique_id_to_database(node_id, unique_id)
+    return value
 
-
+async def get_endpoint_list_over_matter(node_id):
     command = f"descriptor read parts-list {node_id} 0"
     await run_chip_tool_command(command)
     while True:
@@ -166,26 +166,42 @@ async def register_device_to_database(node_id):
 
         if node_id == node:
             endpoints = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
+            break
         else:
             continue
+    return endpoints
 
-        break
+async def get_devicetypes_over_matter(node_id, endpoint):
+    command = f"descriptor read device-type-list {node_id} {endpoint}"
+    await run_chip_tool_command(command)
+    while True:
+        json_str = await response_queue.get()
+        json_data = json.loads(json_str)
+
+        node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+        if node_id == node:
+            devicetypes = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"][0]
+            break
+        else:
+            continue
+    return devicetypes
+
+async def register_device_to_database():
+    print("\033[1;34mCHIP\033[0m:     Registering device to database...")
+    node_id = get_new_node_id_from_database()
+    unique_id = await get_basic_info_over_matter(node_id, "unique-id")
+    print(f"\033[1;34mCHIP\033[0m:     Registering device to database: {node_id}, {unique_id}")
+    vendor_name = await get_basic_info_over_matter(node_id, "vendor-name")
+    print(f"\033[1;34mCHIP\033[0m:     Registering device to database: {node_id}, {unique_id}, {vendor_name}")
+    # product_name = await get_basic_info_over_matter(node_id, "product-name")
+    # device_name = f"{vendor_name}-{product_name}"
+    insert_unique_id_to_database(node_id, vendor_name, unique_id)
+    endpoints = await get_endpoint_list_over_matter(node_id)
 
     for endpoint in endpoints:
         topic_id = generate_hash(node_id, unique_id, endpoint)
-        command = f"descriptor read device-type-list {node_id} {endpoint}"
-        await run_chip_tool_command(command)
-        while True:
-            json_str = await response_queue.get()
-            json_data = json.loads(json_str)
-            node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
-
-            if node_id == node:
-                devicetypes = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"][0]
-                break
-            else:
-                continue
-
+        devicetypes = await get_devicetypes_over_matter(node_id, endpoint)
+        print(devicetypes)
         devicetype = int(devicetypes.get("0x0"))
         insert_device_to_database(node_id, endpoint, devicetype, topic_id)
 
@@ -193,14 +209,17 @@ async def lifespan(app: FastAPI):
     print("\033[1;34mCHIP\033[0m:     Starting chip-tool REPL...")
     global chip_process
     global chip_tool_output
-    global all_clusters
+    global tasks
 
-    all_clusters = parse_clusters_info(cluster_xml)
+    parse_clusters_info(cluster_xml)
+    from matter_xml_parser import all_clusters
     chip_tool_output = ""
     chip_process = await run_chip_tool()
 
     mqtt_client.connect(MQTT_BROKER_URL, port=9001, keepalive=60)
     mqtt_client.loop_start()
+
+    create_homie_devices(mqtt_client)
 
     tasks = [
         asyncio.create_task(process_requests()),
@@ -209,26 +228,9 @@ async def lifespan(app: FastAPI):
     ]
 
     await subscribe_devices()
-    # await run_chip_tool_command("onoff subscribe on-off 1 10 1 1")
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
     yield
-
-    print("\033[1;34mCHIP\033[0m:     Stopping chip-tool REPL...")
-
-    for task in tasks:
-        task.cancel()
-
-    chip_process.terminate()
-    await asyncio.sleep(1)
-
-    if chip_process.poll() is None:
-        chip_process.kill()
-    print("\033[1;34mCHIP\033[0m:     chip-tool REPL stopped.")
-
-    mqtt_client.loop_stop()
-    mqtt_client.disconnect()
-    close_database_connection()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -264,6 +266,9 @@ async def run_chip_tool_command_post(request: CommandRequest):
     print(f"\033[1;34mCHIP\033[0m:     received command: {request.command}")
     if "pairing" in request.command:
         request.command = request.command + f" --paa-trust-store-path {paa_root_cert}"
+    if "test" in request.command:
+        await register_device_to_database()
+        return {"status": "success", "message": "Test command received."}
     future = asyncio.get_event_loop().create_future()
     await request_queue.put((None, request.command, future))
     result = await future
@@ -301,7 +306,7 @@ grammar = """
     key: /[a-zA-Z_][a-zA-Z0-9_]*/ | /0x[0-9a-fA-F_]+/
     number: /0x[0-9a-fA-F_]+/ | /\d+/
     string: /[a-zA-Z0-9]+/
-    description: /[a-zA-Z0-9]+[ ]+[a-zA-Z0-9]+/
+    description: /([a-zA-Z0-9]+[ ]+)+[a-zA-Z0-9]+/
     %ignore " "
     %ignore /\t/
     %ignore /\\r?\\n/
@@ -346,7 +351,6 @@ def delete_garbage(log):
                 node_id_str = "NodeID = " + node_id
                 formatted_lines.append(node_id_str.strip())
             formatted_lines.append(' '.join(columns[3:]))
-
     formatted_string = ' '.join(formatted_lines)
     return formatted_string
 
@@ -389,6 +393,9 @@ class TreeToJson(Transformer):
         key = items[0]
         value = items[1] if len(items) > 1 else None
         return key, value
+
+    def description(self, items):
+        return str(items[0])
 
     def elements(self, items):
 
