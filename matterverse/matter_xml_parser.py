@@ -47,7 +47,7 @@ def parse_cluster_info(cluster_elem):
             "type": attr.get("type").lower() if attr.get("type") else None,
             "define": attr.get("define"),
             "side": attr.get("side"),
-        }) if attr.get("code").startswith("0x0") else None
+        }) if attr.get("code").startswith("0x0") or not attr.get("code").startswith("0x") else None
 
     for cmd in cluster_elem.findall("command"):
         command = {

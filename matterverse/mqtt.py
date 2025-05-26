@@ -50,7 +50,7 @@ def disconnect_mqtt(client):
     else:
         print("\033[1;35mMQTT\033[0m:     MQTT already disconnected.")
 
-def create_homie_devices(client):
+def publish_homie_devices(client):
     devices = get_devices_from_database()
     if not devices:
         print("\033[1;35mMQTT\033[0m:     No devices found in the database.")
@@ -90,19 +90,18 @@ def publish_homie_device(client, device):
         client.publish(f"{base}/{cluster_name}/$properties", ",".join(attribute_names), retain=True)
         for attr in attributes:
             attribute_name = attr["name"]
-            if attribute_name != '':
-                attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
-                client.publish(f"{base}/{cluster_name}/{attribute_name}/$name", attr["name"], retain=True)
-                if "int" in attr["type"]:
-                    client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "integer", retain=True)
-                elif "bool" in attr["type"]:
-                    client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "boolean", retain=True)
-                    client.publish(f"{base}/{cluster_name}/{attribute_name}/$format", "OFF,ON", retain=True)
-                    client.publish(f"{base}/{cluster_name}/{attribute_name}", "false", retain=True)
-                else:
-                    client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", attr["type"], retain=True)
-                client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "true", retain=True)
-                print(f"{base}/{cluster_name}/{attribute_name}")
+            attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
+            client.publish(f"{base}/{cluster_name}/{attribute_name}/$name", attr["name"], retain=True)
+            if "int" in attr["type"]:
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "integer", retain=True)
+            elif "bool" in attr["type"]:
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "boolean", retain=True)
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$format", "OFF,ON", retain=True)
+                client.publish(f"{base}/{cluster_name}/{attribute_name}", "false", retain=True)
+            else:
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", attr["type"], retain=True)
+            client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "true", retain=True)
+            print(f"{base}/{cluster_name}/{attribute_name}")
     client.publish(f"{base}/$state", "ready", retain=True)
     print(f"\033[1;35mMQTT\033[0m:     Homie device created: {base}")
 
@@ -110,6 +109,7 @@ def publish_homie_device(client, device):
 def publish_to_mqtt_broker(client, json_str):
     from matter_utils import get_cluster_name_by_code, get_attribute_name_by_code
     json_data = json.loads(json_str)
+    basicinformation_code = "0x0028"
 
     report_data = json_data.get("ReportDataMessage", {})
     attribute_report = report_data.get("AttributeReportIBs", [{}])[0].get("AttributeReportIB", {})
@@ -119,17 +119,21 @@ def publish_to_mqtt_broker(client, json_str):
     node_id = attribute_path.get("NodeID")
     endpoint_id = attribute_path.get("Endpoint")
     cluster_code = attribute_path.get("Cluster")
-    cluster_code = f"0x{int(cluster_code):04X}"
+    cluster_code = f"0x{int(cluster_code):04x}"
     attribute_code = attribute_path.get("Attribute")
-    attribute_code = f"0x{int(attribute_code):04X}"
-
+    if cluster_code == basicinformation_code:
+        attribute_code = f"{attribute_code}"
+    else:
+        attribute_code = f"0x{int(attribute_code):04x}"
     payload = attribute_data.get("Data")
+
+    if not isinstance(payload, str):
+        payload = str(payload)
 
     cluster_name = get_cluster_name_by_code(cluster_code)
     cluster_name = cluster_name.lower().replace("/", "")
     attribute_name = get_attribute_name_by_code(cluster_code, attribute_code)
     attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
-
     from database import get_device_by_node_id_endpoint
     device = get_device_by_node_id_endpoint(node_id, endpoint_id)
     if not device:
@@ -140,21 +144,6 @@ def publish_to_mqtt_broker(client, json_str):
     topic = f"homie/{topic_id}/{cluster_name}/{attribute_name}"
     result = client.publish(topic, payload, retain=True)
 
-    # cluster = all_clusters.get(cluster_code, {})
-    # cluster_name = cluster.get("name")
-    # if cluster_name:
-    #     cluster_name = cluster_name.lower().replace("/", "")
-
-    # attribute_name = None
-    # for attr in cluster.get("attributes", []):
-    #     if attr["code"] == attribute_code:
-    #         attribute_name = attr["name"]
-    #         break
-    # if attribute_name:
-    #     attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
-
-    # print(f"\033[1;35mMQTT\033[0m:     Publishing to MQTT broker with topic: {topic}")
-    # result = client.publish(topic, json_str)
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         print("\033[1;35mMQTT\033[0m:     MQTT publish successful.")
     else:

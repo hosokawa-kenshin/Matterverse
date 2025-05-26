@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import signal
-from mqtt import mqtt_client, publish_to_mqtt_broker, create_homie_devices, disconnect_mqtt
+from mqtt import mqtt_client, publish_to_mqtt_broker, publish_homie_devices, disconnect_mqtt
 from matter_xml_parser import parse_clusters_info
 from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id, get_new_node_id_from_database
 from subscribe import subscribe_devices
@@ -138,7 +138,7 @@ async def process_requests():
             break
 
 def generate_hash(node_id, unique_id, endpoint):
-    combined = f"{node_id}-{unique_id}-{endpoint}"
+    combined = f"{node_id}-{endpoint}-{unique_id}"
     return hashlib.sha256(combined.encode()).hexdigest()
 
 async def get_basic_info_over_matter(node_id, attribute):
@@ -148,7 +148,6 @@ async def get_basic_info_over_matter(node_id, attribute):
         json_str = await response_queue.get()
         json_data = json.loads(json_str)
         node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
-
         if node_id == node:
             value = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
             break
@@ -219,7 +218,7 @@ async def lifespan(app: FastAPI):
     mqtt_client.connect(MQTT_BROKER_URL, port=9001, keepalive=60)
     mqtt_client.loop_start()
 
-    create_homie_devices(mqtt_client)
+    publish_homie_devices(mqtt_client)
 
     tasks = [
         asyncio.create_task(process_requests()),
@@ -305,7 +304,7 @@ grammar = """
     code: "(" string ")" | "(" description ")"
     key: /[a-zA-Z_][a-zA-Z0-9_]*/ | /0x[0-9a-fA-F_]+/
     number: /0x[0-9a-fA-F_]+/ | /\d+/
-    string: /[a-zA-Z0-9]+/
+    string: /[a-zA-Z0-9]+/ | /[a-zA-Z0-9_]+/
     description: /([a-zA-Z0-9]+[ ]+)+[a-zA-Z0-9]+/
     %ignore " "
     %ignore /\t/
@@ -329,7 +328,7 @@ def delete_garbage(log):
 
     for line in lines:
         columns = line.split()
-        if "Received Command Response Status" in line or "Subscription established with SubscriptionID" in line:
+        if "Received Command Response Status" in line or "Subscription established with SubscriptionID" in line or "Received Command Response Data" in line:
             continue
 
         if "IM:ReportData" in line:

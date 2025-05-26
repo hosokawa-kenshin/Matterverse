@@ -35,8 +35,8 @@ async def subscribe_devices():
                             endpoint_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Endpoint"]
                             cluster_code = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Cluster"]
                             attribute_code = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Attribute"]
-                            cluster_code = f"0x{int(cluster_code):04X}"
-                            attribute_code = f"0x{int(attribute_code):04X}"
+                            cluster_code = f"0x{int(cluster_code):04x}"
+                            attribute_code = f"0x{int(attribute_code):04x}"
                             if node == node_id and endpoint == endpoint_id and cluster_info.get("id") == cluster_code and attribute.get("code") == attribute_code:
                                 print(f"\033[1;34mCHIP\033[0m:     Subscribe executed for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
                                 break
