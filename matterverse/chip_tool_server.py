@@ -300,11 +300,12 @@ grammar = """
     array: "[" elements "]"
     elements: (element | array | brackets)*
     element: key "=" value | number code
-    value: number | string | brackets | array | number code | string code
+    value: number | string | brackets | array | number code | string code | quotedstr code
     code: "(" string ")" | "(" description ")"
     key: /[a-zA-Z_][a-zA-Z0-9_]*/ | /0x[0-9a-fA-F_]+/
     number: /0x[0-9a-fA-F_]+/ | /\d+/
     string: /[a-zA-Z0-9]+/ | /[a-zA-Z0-9_]+/
+    quotedstr: /"[^"]*"/
     description: /([a-zA-Z0-9]+[ ]+)+[a-zA-Z0-9]+/
     %ignore " "
     %ignore /\t/
@@ -314,7 +315,6 @@ grammar = """
 def delete_garbage(log):
     log = re.sub(r'\x1b\[[0-9;]*m', '', log)
     log = re.sub(r',', '', log)
-    log = re.sub(r'"', '', log)
     row_lines = log.splitlines()
     lines = []
     formatted_lines = []
@@ -374,6 +374,9 @@ class TreeToJson(Transformer):
 
     def string(self, items):
         return str(items[0])
+
+    def quotedstr(self, items):
+        return items[0][1:-1]
 
     def brackets(self, items):
         if len(items) == 1 and isinstance(items[0], dict):

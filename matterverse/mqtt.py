@@ -110,6 +110,7 @@ def publish_to_mqtt_broker(client, json_str):
     from matter_utils import get_cluster_name_by_code, get_attribute_name_by_code
     json_data = json.loads(json_str)
     basicinformation_code = "0x0028"
+    descriptor_code = "0x001d"
 
     report_data = json_data.get("ReportDataMessage", {})
     attribute_report = report_data.get("AttributeReportIBs", [{}])[0].get("AttributeReportIB", {})
@@ -121,8 +122,8 @@ def publish_to_mqtt_broker(client, json_str):
     cluster_code = attribute_path.get("Cluster")
     cluster_code = f"0x{int(cluster_code):04x}"
     attribute_code = attribute_path.get("Attribute")
-    if cluster_code == basicinformation_code:
-        attribute_code = f"{attribute_code}"
+    if cluster_code == basicinformation_code or descriptor_code:
+        return
     else:
         attribute_code = f"0x{int(attribute_code):04x}"
     payload = attribute_data.get("Data")
