@@ -6,7 +6,7 @@ _cursor = None
 def get_database_connection():
     global _conn, _cursor
     if _conn is None or _cursor is None:
-        _conn = sqlite3.connect('./db/matterverse.db')
+        _conn = sqlite3.connect('./db/matterverse.db', check_same_thread=False)
         _cursor = _conn.cursor()
 
         _cursor.execute('''
