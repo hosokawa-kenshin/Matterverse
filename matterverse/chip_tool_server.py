@@ -299,14 +299,12 @@ grammar = """
     brackets: "{" elements "}"
     array: "[" elements "]"
     elements: (element | array | brackets)*
-    element: key "=" value | number code
-    value: number | string | brackets | array | number code | string code | quotedstr code
-    code: "(" string ")" | "(" description ")"
+    element: key "=" value | number | string | quotedstr
+    value: number | string | brackets | array | quotedstr
     key: /[a-zA-Z_][a-zA-Z0-9_]*/ | /0x[0-9a-fA-F_]+/
     number: /0x[0-9a-fA-F_]+/ | /\d+/
     string: /[a-zA-Z0-9]+/ | /[a-zA-Z0-9_]+/
     quotedstr: /"[^"]*"/
-    description: /([a-zA-Z0-9]+[ ]+)+[a-zA-Z0-9]+/
     %ignore " "
     %ignore /\t/
     %ignore /\\r?\\n/
@@ -318,7 +316,6 @@ def delete_garbage(log):
     row_lines = log.splitlines()
     lines = []
     formatted_lines = []
-    parsed_json = ""
     node_id = ""
     for line in row_lines:
         line = line.strip()
@@ -347,10 +344,14 @@ def delete_garbage(log):
 
         if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
             if "Endpoint =" in line or "EndpointId =" in line:
-                node_id_str = "NodeID = " + node_id
+                if node_id:
+                    node_id_str = "NodeID = " + node_id
+                else:
+                    node_id_str = "NodeID = UNKNOWN"
                 formatted_lines.append(node_id_str.strip())
             formatted_lines.append(' '.join(columns[3:]))
     formatted_string = ' '.join(formatted_lines)
+    formatted_string = re.sub(r'\(.*?\)', '', formatted_string)
     return formatted_string
 
 class TreeToJson(Transformer):
@@ -376,7 +377,7 @@ class TreeToJson(Transformer):
         return str(items[0])
 
     def quotedstr(self, items):
-        return items[0][1:-1]
+        return str(items[0][1:-1])
 
     def brackets(self, items):
         if len(items) == 1 and isinstance(items[0], dict):
@@ -388,9 +389,6 @@ class TreeToJson(Transformer):
             return items[0]
         return items
 
-    def code(self, items):
-        return items[0]
-
     def element(self, items):
         key = items[0]
         value = items[1] if len(items) > 1 else None
@@ -400,6 +398,9 @@ class TreeToJson(Transformer):
         return str(items[0])
 
     def elements(self, items):
+        with open("output_items.txt", "a") as f:
+            for item in items:
+                f.write(f"{item} (type: {type(item)})\n")
 
         if len(items) == 1 and isinstance(items[0], list):
             return items[0]
@@ -407,7 +408,7 @@ class TreeToJson(Transformer):
         if len(items) == 1 and isinstance(items[0],dict):
             return items[0]
 
-        if all(isinstance(item, tuple) and isinstance(item[0], int) and item[1] == "unsigned" for item in items):
+        if all(isinstance(item, tuple) and item[1] == None for item in items):
             result = []
             result.extend(item[0] for item in items)
             return result
