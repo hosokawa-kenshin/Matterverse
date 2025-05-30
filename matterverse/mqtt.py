@@ -90,12 +90,10 @@ def publish_homie_device(client, device):
         attributes = get_attributes_by_cluster_name(cluster)
         cluster_name = cluster.lower().replace("/", "")
         client.publish(f"{base}/{cluster_name}/$name", cluster, retain=True)
-        # attribute_names = [re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attr["name"]).lower() for attr in attributes]
         attribute_names = [attr["name"] for attr in attributes]
         client.publish(f"{base}/{cluster_name}/$properties", ",".join(attribute_names), retain=True)
         for attr in attributes:
             attribute_name = attr["name"]
-            # attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
             client.publish(f"{base}/{cluster_name}/{attribute_name}/$name", attr["name"], retain=True)
             if "int" in attr["type"]:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "integer", retain=True)
@@ -114,8 +112,6 @@ def publish_homie_device(client, device):
 def publish_to_mqtt_broker(client, json_str):
     from matter_utils import get_cluster_name_by_code, get_attribute_name_by_code
     json_data = json.loads(json_str)
-    basicinformation_code = "0x0028"
-    descriptor_code = "0x001d"
 
     report_data = json_data.get("ReportDataMessage", {})
     attribute_report = report_data.get("AttributeReportIBs", [{}])[0].get("AttributeReportIB", {})
@@ -124,27 +120,32 @@ def publish_to_mqtt_broker(client, json_str):
 
     node_id = attribute_path.get("NodeID")
     endpoint_id = attribute_path.get("Endpoint")
-    cluster_code = attribute_path.get("Cluster")
-    cluster_code = f"0x{int(cluster_code):04x}"
-    attribute_code = attribute_path.get("Attribute")
-    if cluster_code == basicinformation_code or cluster_code == descriptor_code:
-        print("\033[1;31mMQTT\033[0m:     Basic Information or Descriptor Cluster received, skipping MQTT publish.")
-        return
-    else:
-        attribute_code = f"0x{int(attribute_code):04x}"
-    payload = attribute_data.get("Data")
-
-    if not isinstance(payload, str):
-        payload = str(payload)
-    cluster_name = get_cluster_name_by_code(cluster_code)
-    cluster_name = cluster_name.lower().replace("/", "")
-    attribute_name = get_attribute_name_by_code(cluster_code, attribute_code)
-    # attribute_name = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
     from database import get_device_by_node_id_endpoint
     device = get_device_by_node_id_endpoint(node_id, endpoint_id)
     if not device:
         print("\033[1;31mMQTT\033[0m:     Device not found in database.")
         return
+    devicetype = device.get("DeviceType")
+    devicetype = f"0x{int(devicetype):04x}"
+
+    clusters = get_cluster_by_device_type(devicetype)
+    cluster_code = attribute_path.get("Cluster")
+    cluster_code = f"0x{int(cluster_code):04x}"
+    attribute_code = attribute_path.get("Attribute")
+    payload = attribute_data.get("Data")
+
+    if not isinstance(payload, str):
+        payload = str(payload)
+    cluster_name = get_cluster_name_by_code(cluster_code)
+
+    if cluster_name not in clusters:
+        print("\033[1;31mMQTT\033[0m:     Cluster not found in device's clusters, skipping MQTT publish.")
+        return
+    else:
+        attribute_code = f"0x{int(attribute_code):04x}"
+
+    cluster_name = cluster_name.lower().replace("/", "")
+    attribute_name = get_attribute_name_by_code(cluster_code, attribute_code)
     topic_id = device.get("TopicID")
     topic = f"homie/{topic_id}/{cluster_name}/{attribute_name}"
     result = client.publish(topic, payload, retain=True)

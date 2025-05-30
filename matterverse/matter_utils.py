@@ -49,10 +49,10 @@ def get_cluster_by_device_type(device_type):
         ],
         "0x0100": ["On/Off"],
         "0x0101": ["On/Off", "Level Control"],
-        "0x010C": ["On/Off", "Level Control", "Color Control"],
-        "0x010D": ["On/Off", "Level Control", "Color Control"],
-        "0x010A": ["On/Off"],
-        "0x010B": ["On/Off", "Level Control"],
+        "0x010c": ["On/Off", "Level Control", "Color Control"],
+        "0x010d": ["On/Off", "Level Control", "Color Control"],
+        "0x010a": ["On/Off"],
+        "0x010b": ["On/Off", "Level Control"],
         "0x0303": [
             "On/Off", "Pump Configuration and Control", "Level Control", "Temperature Measurement",
             "Pressure Measurement", "Flow Measurement", "Occupancy Sensing",
@@ -76,8 +76,8 @@ def get_cluster_by_device_type(device_type):
         "0x0306": ["Flow Measurement"],
         "0x0307": ["Relative Humidity Measurement"],
         "0x0850": ["On/Off"],
-        "0x000A": ["Door Lock"],
-        "0x000B": ["Door Lock"],
+        "0x000a": ["Door Lock"],
+        "0x000b": ["Door Lock"],
         "0x0202": ["Window Covering"],
         "0x0203": ["Window Covering"],
         "0x0300": ["Thermostat", "On/Off", "Level Control"],
@@ -85,7 +85,7 @@ def get_cluster_by_device_type(device_type):
             "Thermostat", "Thermostat User Interface Configuration", "Fan Control",
             "Temperature Measurement", "Occupancy Sensing", "Relative Humidity Measurement",
         ],
-        "0x002B": ["Fan Control"],
+        "0x002b": ["Fan Control"],
         "0x0023": [
             "Media Playback", "Keypad Input", "Application Launcher", "Media Input", "On/Off",
             "Channel", "Audio Output", "Low Power", "Wake on LAN", "Target Navigator",
@@ -100,7 +100,7 @@ def get_cluster_by_device_type(device_type):
             "Account Login", "On/Off", "Level Control", "Wake on LAN", "Channel", "Target Navigator",
             "Media Input", "Low Power", "Audio Output", "Application Launcher", "Application Basic",
         ],
-        "0x002A": [
+        "0x002a": [
             "Media Playback", "Content Launcher", "Keypad Input",
             "Account Login", "On/Off", "Level Control", "Wake on LAN", "Channel", "Target Navigator",
             "Media Input", "Low Power", "Audio Output", "Application Launcher",
@@ -119,12 +119,12 @@ def get_cluster_by_device_type(device_type):
         "0x0076": [
             "Groups", "Smoke CO Alarm", "Relative Humidity Measurement",
             "Temperature Measurement", "Carbon Monoxide Concentration Measurement", "Power Source",
-                    ],
-        "0x002D": [
+        ],
+        "0x002d": [
             "Groups", "Fan Control", "HEPA Filter Monitoring",
             "Activated Carbon Filter Monitoring",
         ],
-        "0x002C": [
+        "0x002c": [
             "Air Quality", "Temperature Measurement",
             "Relative Humidity Measurement", "Carbon Monoxide Concentration Measurement",
             "Carbon Dioxide Concentration Measurement", "Nitrogen Dioxide Concentration Measurement",
@@ -137,7 +137,7 @@ def get_cluster_by_device_type(device_type):
             "On/Off", "Temperature Control", "Dishwasher Mode",
             "Dishwasher Alarm", "Operational State",
         ],
-        "0x007B": [],
+        "0x007b": [],
         "0x0079": [
             "Fan Control", "Microwave Oven Mode", "Microwave Oven Control",
             "Operational State",
@@ -150,11 +150,11 @@ def get_cluster_by_device_type(device_type):
             "On/Off", "Laundry Washer Mode", "Laundry Washer Controls",
             "Temperature Control", "Operational State",
         ],
-        "0x007C": [
+        "0x007c": [
             "On/Off", "Laundry Washer Mode", "Laundry Dryer Controls",
             "Temperature Control", "Operational State",
         ],
-        "0x007A": [
+        "0x007a": [
             "HEPA Filter Monitoring", "Activated Carbon Filter Monitoring",
             "Fan Control",
         ],
@@ -176,7 +176,7 @@ def get_cluster_by_device_type(device_type):
             "Thread Border Router Management",
         ],
         "0x0091": ["Thread Network Diagnostics", "Thread Border Router Management"],
-        "0xFFF10003": [
+        "0xfff10003": [
             "Color Control", "Door Lock", "Groups",
             "Level Control", "On/Off", "Scenes Management", "Temperature Measurement",
         ],
@@ -186,7 +186,7 @@ def get_cluster_by_device_type(device_type):
         ],
         "0x0078": ["On/Off"],
         "0x0077": ["On/Off", "Temperature Control", "Temperature Measurement"],
-        "0x050C": [
+        "0x050c": [
             "Energy EVSE", "Energy EVSE Mode", "Temperature Measurement",
         ],
     }

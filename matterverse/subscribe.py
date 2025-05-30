@@ -6,12 +6,13 @@ from matter_utils import get_cluster_by_device_type, get_cluster_name_by_code
 import json
 
 async def subscribe_devices():
+    print("\033[1;34mCHIP\033[0m:     Subscribing to all devices...")
     devices = get_devices_from_database()
     for device in devices:
         node = device.get("NodeID")
         endpoint = device.get("Endpoint")
         device_type = device.get("DeviceType")
-        device_type = f"0x{int(device_type):04X}"
+        device_type = f"0x{int(device_type):04x}"
         clusters = get_cluster_by_device_type(device_type)
         from matter_xml_parser import all_clusters
         for cluster in clusters:

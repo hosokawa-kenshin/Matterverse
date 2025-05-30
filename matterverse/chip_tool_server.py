@@ -29,6 +29,7 @@ paa_root_cert = os.getenv('PAA_CERT_DIR_PATH', '../sdk/credentials/paa_root_cert
 connected_clients = set()
 request_queue = asyncio.Queue()
 response_queue = asyncio.Queue()
+parsed_queue = asyncio.Queue()
 
 class CommandRequest(BaseModel):
     command: str
@@ -48,9 +49,26 @@ loop = asyncio.get_event_loop()
 loop.add_signal_handler(signal.SIGINT, shutdown_handler)
 loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
 
-async def parse_subscribe_chip_tool_output():
-    global chip_tool_output
+async def publish_parsed_data():
     global connected_clients
+    while True:
+        parsed_json = await parsed_queue.get()
+        if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
+            await publish_to_all_websocket_clients(parsed_json)
+            publish_to_mqtt_broker(mqtt_client, parsed_json)
+        elif "InvokeResponseMessage" in parsed_json:
+            json_data = json.loads(parsed_json)
+            cluster_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["ClusterId"]
+            command_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["CommandId"]
+            if cluster_id == "48" and command_id == "5":
+                result = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommmandFields"]["0x0"]
+                if result == "0":
+                    print("\033[1;34mCHIP\033[0m:     Device registration successful.")
+                    await register_device_to_database()
+        await asyncio.sleep(0.1)
+
+async def parse_chip_tool_output():
+    global chip_tool_output
     print("\033[1;34mCHIP\033[0m:     Start parsing chip-tool output")
     while True:
         if "[TOO] Endpoint: " in chip_tool_output or "Received Command Response Status" in chip_tool_output or "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output:
@@ -69,13 +87,11 @@ async def parse_subscribe_chip_tool_output():
                                     tree = parse_chip_data(block)
                                     parsed_json = json.dumps(TreeToJson().transform(tree))
                                     print("\033[1;34mCHIP\033[0m:     Received data: ", parsed_json)
+                                    await parsed_queue.put(parsed_json)
+                                    await response_queue.put(parsed_json)
                                 except Exception as e:
                                     print(f"\033[1;34mCHIP\033[0m:     Error parsing data: {e}")
                                     continue
-                                if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
-                                    await publish_to_all_websocket_clients(parsed_json)
-                                    publish_to_mqtt_broker(mqtt_client, parsed_json)
-                                await response_queue.put(parsed_json)
                             break
                 else:
                     current_output.append(line + '\n')
@@ -83,29 +99,6 @@ async def parse_subscribe_chip_tool_output():
             await asyncio.sleep(0.1)
         else:
             await asyncio.sleep(2)
-
-async def parse_chip_tool_output():
-    global chip_tool_output
-    while True:
-        if "Received Command Response Status" in chip_tool_output or "[TOO] Endpoint:" in chip_tool_output or "SubscribeResponse is received" in chip_tool_output:
-            lines = chip_tool_output.splitlines()
-            chip_tool_output = ""
-            current_output = []
-            for line in lines:
-                if "Received Command Response Status" in line or "[TOO] Endpoint:" in line:
-                    if current_output:
-                        log = ''.join(current_output)
-                        data = delete_garbage(log)
-                        if data and data.strip():
-                            tree = parse_chip_data(data)
-                            parsed_json = TreeToJson().transform(tree)
-                            print("\033[1;34mCHIP\033[0m:     Received data: ", parsed_json)
-                            return parsed_json
-                else:
-                    current_output.append(line + '\n')
-            break
-        else:
-            await asyncio.sleep(0.1)
 
 async def read_repl_output():
     global chip_tool_output
@@ -189,18 +182,18 @@ async def register_device_to_database():
     print("\033[1;34mCHIP\033[0m:     Registering device to database...")
     node_id = get_new_node_id_from_database()
     unique_id = await get_basic_info_over_matter(node_id, "unique-id")
-    print(f"\033[1;34mCHIP\033[0m:     Registering device to database: {node_id}, {unique_id}")
     vendor_name = await get_basic_info_over_matter(node_id, "vendor-name")
-    print(f"\033[1;34mCHIP\033[0m:     Registering device to database: {node_id}, {unique_id}, {vendor_name}")
-    # product_name = await get_basic_info_over_matter(node_id, "product-name")
-    # device_name = f"{vendor_name}-{product_name}"
-    insert_unique_id_to_database(node_id, vendor_name, unique_id)
+    vendor_name = re.sub(r'[ -]', '', vendor_name)
+    product_name = await get_basic_info_over_matter(node_id, "product-name")
+    product_name = re.sub(r'[ -]', '', product_name)
+    device_name = f"{vendor_name}_{product_name}"
+    insert_unique_id_to_database(node_id, device_name, unique_id)
     endpoints = await get_endpoint_list_over_matter(node_id)
 
     for endpoint in endpoints:
         topic_id = generate_hash(node_id, unique_id, endpoint)
+        topic_id = f"{device_name}_{topic_id}"
         devicetypes = await get_devicetypes_over_matter(node_id, endpoint)
-        print(devicetypes)
         devicetype = int(devicetypes.get("0x0"))
         insert_device_to_database(node_id, endpoint, devicetype, topic_id)
 
@@ -223,7 +216,8 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(process_requests()),
         asyncio.create_task(read_repl_output()),
-        asyncio.create_task(parse_subscribe_chip_tool_output())
+        asyncio.create_task(parse_chip_tool_output()),
+        asyncio.create_task(publish_parsed_data())
     ]
 
     await subscribe_devices()
@@ -398,10 +392,6 @@ class TreeToJson(Transformer):
         return str(items[0])
 
     def elements(self, items):
-        with open("output_items.txt", "a") as f:
-            for item in items:
-                f.write(f"{item} (type: {type(item)})\n")
-
         if len(items) == 1 and isinstance(items[0], list):
             return items[0]
 
