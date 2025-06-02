@@ -1,8 +1,5 @@
 import json
-import sys
 import re
-import subprocess
-from lark import Lark, Transformer
 from dotenv import load_dotenv
 import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -14,8 +11,9 @@ import signal
 from mqtt import mqtt_client, publish_to_mqtt_broker, publish_homie_devices, disconnect_mqtt
 from matter_xml_parser import parse_clusters_info
 from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id, get_new_node_id_from_database
-from subscribe import subscribe_devices
+from subscribe import subscribe_alldevices, subscribe_device
 import hashlib
+from chip_tool_parser import delete_garbage, extract_named_blocks, parse_chip_data, TreeToJson
 
 load_dotenv()
 CHIP_TOOL_PATH = os.getenv('CHIP_TOOL_PATH', './chip-tool')
@@ -55,28 +53,34 @@ async def publish_parsed_data():
         parsed_json = await parsed_queue.get()
         if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
             await publish_to_all_websocket_clients(parsed_json)
-            publish_to_mqtt_broker(mqtt_client, parsed_json)
+            publish_to_mqtt_broker(mqtt_client, parsed_json) # TODO
         elif "InvokeResponseMessage" in parsed_json:
             json_data = json.loads(parsed_json)
-            cluster_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["ClusterId"]
-            command_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["CommandId"]
-            if cluster_id == "48" and command_id == "5":
-                result = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommmandFields"]["0x0"]
+            if "CommandStatusIB" in parsed_json:
+                cluster_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandStatusIB"]["CommandPathIB"]["ClusterId"]
+                command_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandStatusIB"]["CommandPathIB"]["CommandId"]
+            else:
+                cluster_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["ClusterId"]
+                command_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["CommandId"]
+            if cluster_id == 48 and command_id == 5:
+                result = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandFields"]["0x0"]
                 if result == "0":
-                    print("\033[1;34mCHIP\033[0m:     Device registration successful.")
+                    node_id = json_data["InvokeResponseMessage"]["InvokeResponseIBs"][0]["InvokeResponseIB"]["CommandDataIB"]["CommandPathIB"]["NodeID"]
                     await register_device_to_database()
+                    print("\033[1;34mCHIP\033[0m:     Device registration successful.")
+                    await subscribe_device(node_id)
         await asyncio.sleep(0.1)
 
 async def parse_chip_tool_output():
     global chip_tool_output
     print("\033[1;34mCHIP\033[0m:     Start parsing chip-tool output")
     while True:
-        if "[TOO] Endpoint: " in chip_tool_output or "Received Command Response Status" in chip_tool_output or "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output:
+        if "[TOO] Endpoint: " in chip_tool_output or "Received Command Response Status" in chip_tool_output or "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output or "Received CommissioningComplete response" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
             current_output = []
             for line in lines:
-                if "Received Command Response Status" in line or "[TOO] Endpoint:" in line or "Refresh LivenessCheckTime for" in line or "Subscription established with SubscriptionID" in line:
+                if "Received CommissioningComplete response" in line or "Received Command Response Status" in line or "[TOO] Endpoint:" in line or "Refresh LivenessCheckTime for" in line or "Subscription established with SubscriptionID" in line:
                     if current_output:
                         log = ''.join(current_output)
                         data = delete_garbage(log)
@@ -135,47 +139,54 @@ def generate_hash(node_id, unique_id, endpoint):
     return hashlib.sha256(combined.encode()).hexdigest()
 
 async def get_basic_info_over_matter(node_id, attribute):
+    basicinforamation_id = 40
     command = f"basicinformation read {attribute} {node_id} 0"
     await run_chip_tool_command(command)
     while True:
         json_str = await response_queue.get()
         json_data = json.loads(json_str)
-        node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
-        if node_id == node:
-            value = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
-            break
-        else:
-            continue
+        if "ReportDataMessage" in json_str and "AttributeReportIBs" in json_str:
+            node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+            cluster = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Cluster"]
+            if node_id == node and cluster == basicinforamation_id:
+                value = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
+                break
+            else:
+                continue
     return value
 
 async def get_endpoint_list_over_matter(node_id):
+    descriptor_id = 29
     command = f"descriptor read parts-list {node_id} 0"
     await run_chip_tool_command(command)
     while True:
         json_str = await response_queue.get()
         json_data = json.loads(json_str)
-        node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
-
-        if node_id == node:
-            endpoints = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
-            break
-        else:
-            continue
+        if "ReportDataMessage" in json_str and "AttributeReportIBs" in json_str:
+            node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+            cluster = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Cluster"]
+            if node_id == node and cluster == descriptor_id:
+                endpoints = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"]
+                break
+            else:
+                continue
     return endpoints
 
 async def get_devicetypes_over_matter(node_id, endpoint):
+    descriptor_id = 29
     command = f"descriptor read device-type-list {node_id} {endpoint}"
     await run_chip_tool_command(command)
     while True:
         json_str = await response_queue.get()
         json_data = json.loads(json_str)
-
-        node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
-        if node_id == node:
-            devicetypes = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"][0]
-            break
-        else:
-            continue
+        if "ReportDataMessage" in json_str and "AttributeReportIBs" in json_str:
+            node = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
+            cluster = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Cluster"]
+            if node_id == node and cluster == descriptor_id:
+                devicetypes = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["Data"][0]
+                break
+            else:
+                continue
     return devicetypes
 
 async def register_device_to_database():
@@ -206,7 +217,7 @@ async def lifespan(app: FastAPI):
     parse_clusters_info(cluster_xml)
     from matter_xml_parser import all_clusters
     chip_tool_output = ""
-    chip_process = await run_chip_tool()
+    chip_process = await run_chip_tool_repl()
 
     mqtt_client.connect(MQTT_BROKER_URL, port=9001, keepalive=60)
     mqtt_client.loop_start()
@@ -220,7 +231,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(publish_parsed_data())
     ]
 
-    await subscribe_devices()
+    await subscribe_alldevices()
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
     yield
@@ -257,8 +268,6 @@ async def run_chip_tool_command_ws(websocket: WebSocket):
 @app.post("/command")
 async def run_chip_tool_command_post(request: CommandRequest):
     print(f"\033[1;34mCHIP\033[0m:     received command: {request.command}")
-    if "pairing" in request.command:
-        request.command = request.command + f" --paa-trust-store-path {paa_root_cert}"
     if "test" in request.command:
         await register_device_to_database()
         return {"status": "success", "message": "Test command received."}
@@ -273,9 +282,9 @@ async def run_chip_tool_command(command):
     result = await future
     return result
 
-async def run_chip_tool():
+async def run_chip_tool_repl():
     process = await asyncio.create_subprocess_exec(
-        CHIP_TOOL_PATH, "interactive", "start", "--storage-directory", COMMISSIONING_DIR,
+        CHIP_TOOL_PATH, "interactive", "start","--paa-trust-store-path", paa_root_cert,"--storage-directory", COMMISSIONING_DIR,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
@@ -287,168 +296,3 @@ async def publish_to_all_websocket_clients(message):
     for websocket in connected_clients:
         await websocket.send_text(message)
     print(f"\033[1;31mWS  \033[0m:     Published message to all connected clients.")
-
-grammar = """
-    statement: key "=" brackets
-    brackets: "{" elements "}"
-    array: "[" elements "]"
-    elements: (element | array | brackets)*
-    element: key "=" value | number | string | quotedstr
-    value: number | string | brackets | array | quotedstr
-    key: /[a-zA-Z_][a-zA-Z0-9_]*/ | /0x[0-9a-fA-F_]+/
-    number: /0x[0-9a-fA-F_]+/ | /\d+/
-    string: /[a-zA-Z0-9]+/ | /[a-zA-Z0-9_]+/
-    quotedstr: /"[^"]*"/
-    %ignore " "
-    %ignore /\t/
-    %ignore /\\r?\\n/
-"""
-
-def delete_garbage(log):
-    log = re.sub(r'\x1b\[[0-9;]*m', '', log)
-    log = re.sub(r',', '', log)
-    row_lines = log.splitlines()
-    lines = []
-    formatted_lines = []
-    node_id = ""
-    for line in row_lines:
-        line = line.strip()
-        columns = line.split()
-        if len(columns) >= 4 and any(columns[3:]):
-            lines.append(line)
-
-    for line in lines:
-        columns = line.split()
-        if "Received Command Response Status" in line or "Subscription established with SubscriptionID" in line or "Received Command Response Data" in line:
-            continue
-
-        if "IM:ReportData" in line:
-            match = re.search(r'from\s+\d+:(\w{16})', line)
-            if match:
-                node_id = match.group(1)
-                if node_id and not node_id.startswith("0x"):
-                    node_id = "0x" + node_id.lstrip("0")
-
-        if "IM:InvokeCommandResponse" in line:
-            match = re.search(r'from\s+\d+:(\w{16})', line)
-            if match:
-                node_id = match.group(1)
-                if node_id and not node_id.startswith("0x"):
-                    node_id = "0x" + node_id.lstrip("0")
-
-        if (len(columns) >= 3 and columns[2] == '[DMG]' and (columns[3] == '[' or columns[3] == ']' or '{' in line or '}' in line or '=' in line or '(' in line or ')' in line)):
-            if "Endpoint =" in line or "EndpointId =" in line:
-                if node_id:
-                    node_id_str = "NodeID = " + node_id
-                else:
-                    node_id_str = "NodeID = UNKNOWN"
-                formatted_lines.append(node_id_str.strip())
-            formatted_lines.append(' '.join(columns[3:]))
-    formatted_string = ' '.join(formatted_lines)
-    formatted_string = re.sub(r'\(.*?\)', '', formatted_string)
-    return formatted_string
-
-class TreeToJson(Transformer):
-    def start(self, items):
-        return {"start": items}
-
-    def statement(self, items):
-        return {items[0]: items[1]}
-
-    def key(self, items):
-        return str(items[0])
-
-    def value(self, items):
-        return items[0]
-
-    def number(self, items):
-        if items[0].startswith('0x'):
-            return int(items[0], 16)
-        else:
-            return int(items[0])
-
-    def string(self, items):
-        return str(items[0])
-
-    def quotedstr(self, items):
-        return str(items[0][1:-1])
-
-    def brackets(self, items):
-        if len(items) == 1 and isinstance(items[0], dict):
-            return dict(items[0])
-        return items
-
-    def array(self, items):
-        if len(items) == 1 and isinstance(items[0], list):
-            return items[0]
-        return items
-
-    def element(self, items):
-        key = items[0]
-        value = items[1] if len(items) > 1 else None
-        return key, value
-
-    def description(self, items):
-        return str(items[0])
-
-    def elements(self, items):
-        if len(items) == 1 and isinstance(items[0], list):
-            return items[0]
-
-        if len(items) == 1 and isinstance(items[0],dict):
-            return items[0]
-
-        if all(isinstance(item, tuple) and item[1] == None for item in items):
-            result = []
-            result.extend(item[0] for item in items)
-            return result
-
-        result = {}
-        if all(isinstance(item, tuple)for item in items):
-            for item in items:
-                result[item[0]] = item[1]
-            return result
-
-        for key, value in items:
-            result[key] = value
-        return result
-
-def parse_chip_data(data):
-    parser = Lark(grammar, start='statement', parser='lalr')
-    tree = parser.parse(data)
-    return tree
-
-def print_tree_json(tree):
-    parsed_json = json.dumps(TreeToJson().transform(tree), indent=4)
-    print(parsed_json)
-
-def extract_named_blocks(text):
-    blocks = []
-    stack = []
-    current_block = ""
-    recording = False
-    key_start = None
-
-    for i, char in enumerate(text):
-        if char == '{':
-            if not stack:
-                key_match = re.search(r'(\w+)\s*=\s*$', text[:i].strip().splitlines()[-1])
-                if key_match:
-                    key_start = text.rfind(key_match.group(1), 0, i)
-                    current_block = text[key_start:i]
-                    recording = True
-            stack.append('{')
-            if recording:
-                current_block += '{'
-        elif char == '}':
-            stack.pop()
-            if recording:
-                current_block += '}'
-            if not stack and recording:
-                blocks.append(current_block.strip())
-                current_block = ""
-                recording = False
-        else:
-            if recording:
-                current_block += char
-    return blocks

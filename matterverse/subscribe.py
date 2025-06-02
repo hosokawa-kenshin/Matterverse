@@ -1,13 +1,23 @@
 import os
 import re
-from database import get_devices_from_database
+from database import get_devices_from_database, get_devices_by_node_id
 from matter_xml_parser import parse_device_type_info, parse_clusters_info
 from matter_utils import get_cluster_by_device_type, get_cluster_name_by_code
 import json
 
-async def subscribe_devices():
+async def subscribe_device(node_id):
+    devices = get_devices_by_node_id(node_id)
+    if devices is None or len(devices) == 0:
+        print(f"\033[1;34mCHIP\033[0m:     Device with NodeID {node_id} and Endpoint {endpoint} not found in database.")
+        return
+    await subscribe_devices(devices)
+
+async def subscribe_alldevices():
     print("\033[1;34mCHIP\033[0m:     Subscribing to all devices...")
     devices = get_devices_from_database()
+    await subscribe_devices(devices)
+
+async def subscribe_devices(devices):
     for device in devices:
         node = device.get("NodeID")
         endpoint = device.get("Endpoint")

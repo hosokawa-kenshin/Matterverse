@@ -111,6 +111,7 @@ def publish_homie_device(client, device):
 
 def publish_to_mqtt_broker(client, json_str):
     from matter_utils import get_cluster_name_by_code, get_attribute_name_by_code
+    print("\033[1;35mMQTT\033[0m:     Publishing to MQTT broker...")
     json_data = json.loads(json_str)
 
     report_data = json_data.get("ReportDataMessage", {})
@@ -120,7 +121,12 @@ def publish_to_mqtt_broker(client, json_str):
 
     node_id = attribute_path.get("NodeID")
     endpoint_id = attribute_path.get("Endpoint")
+
     from database import get_device_by_node_id_endpoint
+    if node_id > 9223372036854775807 or node_id < -9223372036854775808:
+        print("\033[1;31mMQTT\033[0m:     NodeID exceeds SQLite integer range, setting NodeID to NULL.")
+        node_id = None
+
     device = get_device_by_node_id_endpoint(node_id, endpoint_id)
     if not device:
         print("\033[1;31mMQTT\033[0m:     Device not found in database.")
