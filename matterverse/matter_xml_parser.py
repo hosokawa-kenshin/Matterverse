@@ -2,7 +2,90 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
+def create_devicetypes_dict(devicetypes):
+    devicetypes_dict = []
+    for device_type in devicetypes:
+        devicetypes_dict.append(create_devicetype_dict(device_type))
+    return devicetypes_dict
+
+def create_devicetype_dict(devicetype):
+    name = devicetype.get('name', 'Unknown Device Type')
+    device_id = devicetype.get('id', 'Unknown ID').lower()
+    clusters = devicetype.get('clusters', [])
+    data = {
+        "id": device_id,
+        "name": name,
+        "clusters": clusters
+    }
+    return data
+
+def create_clusters_dict(clusters):
+    clusters_dict = []
+    for cluster in clusters:
+        clusters_dict.append(create_cluster_dict(cluster))
+    return clusters_dict
+
+def create_cluster_dict(cluster):
+    name = cluster.get('name', 'Unknown Cluster')
+    cluster_id = cluster.get('id', 'Unknown ID').lower()
+    attributes = cluster.get('attributes', [])
+    # commands = cluster.get('commands', [])
+    data = {
+        "id": cluster_id,
+        "name": name,
+        "attributes": attributes,
+        # "commands": commands
+    }
+    return data
+
+def filter_clusters(clusters_dict):
+    filtered_clusters = []
+    for cluster in clusters_dict:
+        attributes = cluster.get('attributes', 'Unknown Type')
+        filtered_attributes = []
+        for attr in attributes:
+            attribute_type = attr.get('type')
+            if "enum" in attribute_type:
+                continue
+            if not "int" in attribute_type and not "bool" in attribute_type and not "string" in attribute_type:
+                continue
+            filtered_attributes.append(attr)
+        if not filtered_attributes:
+            continue
+        cluster_name = cluster.get('name', 'Unknown Cluster')
+        cluster_id = cluster.get('id', 'Unknown ID').lower()
+        filtered_cluster = {
+            "id": cluster_id,
+            "name": cluster_name,
+            "attributes": filtered_attributes
+        }
+        filtered_clusters.append(filtered_cluster)
+
+    return filtered_clusters
+
+def filter_devicetypes(devicetypes_dict, clusters_dict):
+    filtered_devicetypes = []
+    for devicetype in devicetypes_dict:
+        filtered_clusters = []
+        clusters = devicetype.get('clusters', [])
+        for cluster in clusters:
+            if not any(item.get("name") == cluster for item in clusters_dict):
+                continue
+            filtered_clusters.append(cluster)
+        if not filtered_clusters:
+            continue
+        devicetype_id = devicetype.get('id', 'Unknown ID')
+        devicetype_name = devicetype.get('name', 'Unknown Device Type')
+        filtered_devicetypes.append({
+            "id": devicetype_id,
+            "name": devicetype_name,
+            "clusters": filtered_clusters
+        })
+    return filtered_devicetypes
+
 def parse_device_type_info(xml_file):
+    global all_clusters
+    global all_devicetypes
     tree = ET.parse(xml_file)
     root = tree.getroot()
 
@@ -12,7 +95,7 @@ def parse_device_type_info(xml_file):
         device_info = {}
         device_id = device_type.find('deviceId')
         if device_id is not None:
-            device_info['id'] = device_id.text
+            device_info['id'] = device_id.text.lower()
 
         name = device_type.find('name')
         if name is not None:
@@ -22,19 +105,24 @@ def parse_device_type_info(xml_file):
         if clusters is not None:
             cluster_list = []
             for include in clusters.findall('include'):
-                cluster = include.get('cluster')
+                cluster = include.get('cluster') if include.get('serverLocked') == 'true' else None
                 if cluster:
                     cluster_list.append(cluster)
             device_info['clusters'] = cluster_list
 
         results.append(device_info)
+        temp_devicetypes = create_devicetypes_dict(results)
+        all_devicetypes = filter_devicetypes(temp_devicetypes, all_clusters)
+    return all_devicetypes
 
-    return results
+def convert_to_camel_case(snake_str):
+    components = snake_str.split('_')
+    return ''.join(x.title() for x in components)
 
 def parse_cluster_info(cluster_elem):
     cluster = {
         "name": cluster_elem.findtext("name"),
-        "id": cluster_elem.findtext("code"),
+        "id": cluster_elem.findtext("code").lower(),
         "attributes": [],
         "commands": [],
         "events": [],
@@ -42,10 +130,11 @@ def parse_cluster_info(cluster_elem):
 
     for attr in cluster_elem.findall("attribute"):
         cluster["attributes"].append({
-            "code": attr.get("code"),
-            "name": attr.text if attr.text else None,
+            "code": attr.get("code").lower(),
+            "name": convert_to_camel_case(attr.get("define")) if attr.get("define") else None,
             "type": attr.get("type").lower() if attr.get("type") else None,
             "define": attr.get("define"),
+            "writable": attr.get("writable") if attr.get("writable") else "false",
             "side": attr.get("side"),
         }) if attr.get("code").startswith("0x0") or not attr.get("code").startswith("0x") else None
 
@@ -68,7 +157,7 @@ def parse_cluster_info(cluster_elem):
 def parse_clusters_info(xml_dir):
     global all_clusters
 
-    all_clusters = []
+    clusters = []
     for filename in os.listdir(xml_dir):
         if filename.endswith(".xml"):
             path = os.path.join(xml_dir, filename)
@@ -76,6 +165,8 @@ def parse_clusters_info(xml_dir):
             root = tree.getroot()
             for cluster_elem in root.findall("cluster"):
                 cluster = parse_cluster_info(cluster_elem)
-                all_clusters.append(cluster)
+                clusters.append(cluster)
+    temp_clusters = create_clusters_dict(clusters)
+    all_clusters = filter_clusters(temp_clusters)
 
     return all_clusters

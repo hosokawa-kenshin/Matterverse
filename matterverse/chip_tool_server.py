@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import signal
 from mqtt import mqtt_client, publish_to_mqtt_broker, publish_homie_devices, disconnect_mqtt
-from matter_xml_parser import parse_clusters_info
+from matter_xml_parser import parse_clusters_info, parse_device_type_info
 from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id, get_new_node_id_from_database
 from subscribe import subscribe_alldevices, subscribe_device
 import hashlib
@@ -215,7 +215,8 @@ async def lifespan(app: FastAPI):
     global tasks
 
     parse_clusters_info(cluster_xml)
-    from matter_xml_parser import all_clusters
+    parse_device_type_info(device_type_xml)
+
     chip_tool_output = ""
     chip_process = await run_chip_tool_repl()
 
