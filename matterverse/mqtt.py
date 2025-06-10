@@ -64,11 +64,9 @@ def publish_homie_devices(client):
         publish_homie_device(client, device)
 
 def publish_homie_device(client, device):
-    from matter_xml_parser import all_clusters
-
     name = "Test Device"
     topic_id = device.get("TopicID")
-    device_type = f"0x{int(device.get('DeviceType', 0)):04X}"
+    device_type = f"0x{int(device.get('DeviceType', 0)):04x}"
     clusters = get_cluster_by_device_type(device_type)
 
     base = f"homie/{topic_id}"
@@ -82,13 +80,16 @@ def publish_homie_device(client, device):
     attribute_names = []
 
     for cluster in clusters:
-        cluster_names.append(cluster.lower().replace("/", ""))
+        cluster_nm = cluster.lower().replace("/", "")
+        cluster_nm = re.sub(r' ', '', cluster_nm)
+        cluster_names.append(cluster_nm)
 
     client.publish(f"{base}/$nodes", ",".join(cluster_names), retain=True)
 
     for cluster in clusters:
         attributes = get_attributes_by_cluster_name(cluster)
         cluster_name = cluster.lower().replace("/", "")
+        cluster_name = re.sub(r' ', '', cluster_name)
         client.publish(f"{base}/{cluster_name}/$name", cluster, retain=True)
         attribute_names = [attr["name"] for attr in attributes]
         client.publish(f"{base}/{cluster_name}/$properties", ",".join(attribute_names), retain=True)
@@ -99,11 +100,13 @@ def publish_homie_device(client, device):
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "integer", retain=True)
             elif "bool" in attr["type"]:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "boolean", retain=True)
-                client.publish(f"{base}/{cluster_name}/{attribute_name}/$format", "OFF,ON", retain=True)
                 client.publish(f"{base}/{cluster_name}/{attribute_name}", "false", retain=True)
             else:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", attr["type"], retain=True)
-            client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "true", retain=True)
+            if attr['writable'] == "true":
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "true", retain=True)
+            else:
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "false", retain=True)
             print(f"{base}/{cluster_name}/{attribute_name}")
     client.publish(f"{base}/$state", "ready", retain=True)
     print(f"\033[1;35mMQTT\033[0m:     Homie device created: {base}")

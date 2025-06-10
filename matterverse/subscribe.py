@@ -47,6 +47,8 @@ async def subscribe_devices(devices):
                                 print(f"\033[1;31mCHIP\033[0m:     Timeout waiting for response for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
                                 break
                             json_data = json.loads(json_str)
+                            if "ReportDataMessage" not in json_data or "AttributeReportIBs" not in json_data["ReportDataMessage"]:
+                                break
                             node_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["NodeID"]
                             endpoint_id = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Endpoint"]
                             cluster_code = json_data["ReportDataMessage"]["AttributeReportIBs"][0]["AttributeReportIB"]["AttributeDataIB"]["AttributePathIB"]["Cluster"]
