@@ -7,7 +7,6 @@ import asyncio
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import signal
 from mqtt import mqtt_client, publish_to_mqtt_broker, publish_homie_devices, disconnect_mqtt
 from matter_xml_parser import parse_clusters_info, parse_device_type_info
 from database import insert_device_to_database, close_database_connection, insert_unique_id_to_database, get_endpoints_by_node_id, get_new_node_id_from_database
@@ -31,21 +30,6 @@ parsed_queue = asyncio.Queue()
 
 class CommandRequest(BaseModel):
     command: str
-
-async def handle_shutdown():
-    global chip_process
-    chip_process.kill()
-    print("\033[1;34mCHIP\033[0m:     chip-tool REPL stopped.")
-    disconnect_mqtt(mqtt_client)
-    close_database_connection()
-    exit(0)
-
-def shutdown_handler():
-    asyncio.create_task(handle_shutdown())
-
-loop = asyncio.get_event_loop()
-loop.add_signal_handler(signal.SIGINT, shutdown_handler)
-loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
 
 async def publish_parsed_data():
     global connected_clients
@@ -75,6 +59,7 @@ async def parse_chip_tool_output():
     global chip_tool_output
     print("\033[1;34mCHIP\033[0m:     Start parsing chip-tool output")
     while True:
+
         if "[TOO] Endpoint: " in chip_tool_output or "Received Command Response Status" in chip_tool_output or "Refresh LivenessCheckTime for" in chip_tool_output or "Subscription established with SubscriptionID" in chip_tool_output or "Received CommissioningComplete response" in chip_tool_output:
             lines = chip_tool_output.splitlines()
             chip_tool_output = ""
@@ -109,6 +94,7 @@ async def read_repl_output():
     while True:
         line = await chip_process.stdout.readline()
         chip_tool_output += line.decode()
+        await asyncio.sleep(0.01)
 
 async def process_requests():
     while True:
@@ -126,6 +112,7 @@ async def process_requests():
             elif future:
                 future.set_result({"command": command, "status": "success"})
                 # future.set_result(parsed_json)
+            await asyncio.sleep(0.1)
 
         except Exception as e:
             print(f"\033[1;34mCHIP\033[0m:     Error processing command: {command}")
@@ -236,6 +223,9 @@ async def lifespan(app: FastAPI):
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
     yield
+
+    chip_process.kill()
+    print("\033[1;34mCHIP\033[0m:     chip-tool REPL stopped.")
 
 app = FastAPI(lifespan=lifespan)
 

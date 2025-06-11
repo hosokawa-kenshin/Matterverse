@@ -1,0 +1,38 @@
+# Web Framework and API
+fastapi==0.115.11
+uvicorn==0.34.0
+pydantic==2.10.6
+starlette==0.46.0
+
+# MQTT Client
+paho-mqtt==2.1.0
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# Parsing
+lark==1.1.5
+
+# Network Analysis
+scapy==2.6.1
+
+# WebSocket Support
+websockets==10.4
+
+# CORS Middleware (included with FastAPI)
+# fastapi.middleware.cors is part of fastapi
+
+# Standard Library Dependencies (no installation needed):
+# - json
+# - re
+# - os
+# - asyncio
+# - contextlib
+# - signal
+# - hashlib
+# - sys
+# - subprocess
+# - sqlite3
+# - xml.etree.ElementTree
+# - threading
+

@@ -107,7 +107,6 @@ def publish_homie_device(client, device):
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "true", retain=True)
             else:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "false", retain=True)
-            print(f"{base}/{cluster_name}/{attribute_name}")
     client.publish(f"{base}/$state", "ready", retain=True)
     print(f"\033[1;35mMQTT\033[0m:     Homie device created: {base}")
 
