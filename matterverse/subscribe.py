@@ -23,7 +23,6 @@ async def subscribe_devices(devices):
         device_type = device.get("DeviceType")
         device_type = f"0x{int(device_type):04x}"
         clusters = get_cluster_by_device_type(device_type)
-        print(clusters)
         from matter_xml_parser import all_clusters
         for cluster in clusters:
             cluster_info = next((item for item in all_clusters if item.get("name") == cluster), None)
@@ -42,7 +41,7 @@ async def subscribe_devices(devices):
                         while True:
                             print(f"\033[1;34mCHIP\033[0m:     Waiting for response for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
                             try:
-                                json_str = await asyncio.wait_for(response_queue.get(), timeout=10)
+                                json_str = await asyncio.wait_for(response_queue.get(), timeout=5)
                             except asyncio.TimeoutError:
                                 print(f"\033[1;31mCHIP\033[0m:     Timeout waiting for response for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
                                 break
@@ -57,4 +56,6 @@ async def subscribe_devices(devices):
                             attribute_code = f"0x{int(attribute_code):04x}"
                             if node == node_id and endpoint == endpoint_id and cluster_info.get("id") == cluster_code and attribute.get("code") == attribute_code:
                                 print(f"\033[1;34mCHIP\033[0m:     Subscribe executed for NodeID: {node}, Endpoint: {endpoint}, Cluster: {cluster_name}, Attribute: {attribute_name}")
+                                await asyncio.sleep(0.1)
                                 break
+        print(f"\033[1;34mCHIP\033[0m:     Subscribed to all attributes for NodeID: {node}, Endpoint: {endpoint}, DeviceType: {device_type}")

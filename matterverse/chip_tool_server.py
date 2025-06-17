@@ -53,7 +53,7 @@ async def publish_parsed_data():
                     await register_device_to_database()
                     print("\033[1;34mCHIP\033[0m:     Device registration successful.")
                     await subscribe_device(node_id)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.01)
 
 async def parse_chip_tool_output():
     global chip_tool_output
@@ -87,7 +87,7 @@ async def parse_chip_tool_output():
             current_output = []
             await asyncio.sleep(0.1)
         else:
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.1)
 
 async def read_repl_output():
     global chip_tool_output
@@ -216,10 +216,10 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(process_requests()),
         asyncio.create_task(read_repl_output()),
         asyncio.create_task(parse_chip_tool_output()),
-        asyncio.create_task(publish_parsed_data())
+        asyncio.create_task(publish_parsed_data()),
+        asyncio.create_task(subscribe_alldevices())
     ]
 
-    await subscribe_alldevices()
     print("\033[1;34mCHIP\033[0m:     chip-tool REPL started.")
 
     yield

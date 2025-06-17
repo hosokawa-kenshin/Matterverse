@@ -46,6 +46,9 @@ def filter_clusters(clusters_dict):
         filtered_attributes = []
         for attr in attributes:
             attribute_type = attr.get('type')
+            optional = attr.get('optional', 'false')
+            if optional == 'true':
+                continue
             # if not "enum" in attribute_type and not "int" in attribute_type and not "bool" in attribute_type and not "string" in attribute_type:
             if not "int" in attribute_type and not "bool" in attribute_type and not "string" in attribute_type:
                 continue
@@ -159,9 +162,11 @@ def parse_cluster_info(cluster_elem):
             "name": convert_to_camel_case(attr.get("define")) if attr.get("define") else None,
             "type": attr.get("type").lower() if attr.get("type") else None,
             "define": attr.get("define"),
-            "writable": attr.get("writable") if attr.get("writable") else "true",
+            "writable": attr.get("writable") if attr.get("writable") else "false",
+            "optional": attr.get("optional") if attr.get("optional") else "false",
             "side": attr.get("side"),
-        }) if attr.get("code").startswith("0x0") or not attr.get("code").startswith("0x") else None
+        })
+        # if attr.get("code").startswith("0x0") or not attr.get("code").startswith("0x") else None
 
     for cmd in cluster_elem.findall("command"):
         command = {

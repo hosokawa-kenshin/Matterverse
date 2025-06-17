@@ -4,12 +4,11 @@ import re
 import asyncio
 import threading
 from database import get_devices_from_database
-from matter_utils import get_cluster_by_device_type, get_attributes_by_cluster_name
+from matter_utils import get_cluster_by_device_type, get_attributes_by_cluster_name, get_enums_by_cluster_name
 
 def on_connect(client, userdata, flags, rc):
     print("\033[1;35mMQTT\033[0m:     Connected with result code " + str(rc))
     client.subscribe("homie/+/+/+/set")
-    client.subscribe("cmd/matter/+/+/onoff/toggle")
 
 def on_message(client, userdata, msg):
     print(f"\033[1;35mMQTT\033[0m:     Message received: {msg.topic} {msg.payload}")
@@ -23,7 +22,7 @@ def on_message(client, userdata, msg):
             from database import get_device_by_topic_id
             device = get_device_by_topic_id(topic_id)
             if not device:
-                print("\033[1;31mMQTT\033[0m:     Device not found in database.")
+                print("\033[1;31mMQTT:     Device not found in database.")
                 return
             node_id = device.get("NodeID")
             endpoint_id = device.get("Endpoint")
@@ -57,11 +56,16 @@ def disconnect_mqtt(client):
 def publish_homie_devices(client):
     devices = get_devices_from_database()
     if not devices:
-        print("\033[1;35mMQTT\033[0m:     No devices found in the database.")
+        print("\033[1;31mMQTT:     No devices found in the database.")
         return
 
     for device in devices:
         publish_homie_device(client, device)
+
+def convert_items_to_homie_format(items):
+    def escape_commas(value):
+        return value.replace(",", ",,")
+    return ",".join([f"{item['value']}:{escape_commas(item['name'])}" for item in items])
 
 def publish_homie_device(client, device):
     name = "Test Device"
@@ -96,20 +100,26 @@ def publish_homie_device(client, device):
         for attr in attributes:
             attribute_name = attr["name"]
             client.publish(f"{base}/{cluster_name}/{attribute_name}/$name", attr["name"], retain=True)
-            if "int" in attr["type"]:
+            if "enum" in attr["type"] or attribute_name == "CurrentMode":
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "enum", retain=True)
+                enums = get_enums_by_cluster_name(cluster)
+                for enum in enums:
+                    enum_name = enum.get("name", "Unknown")
+                    if (enum_name == "ModeTag" and attribute_name == "CurrentMode") or (enum_name.lower() == attribute_name):
+                        homie_format = convert_items_to_homie_format(enum["items"])
+                        client.publish(f"{base}/{cluster_name}/{attribute_name}/$format", homie_format, retain=True)
+            elif "int" in attr["type"]:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "integer", retain=True)
             elif "bool" in attr["type"]:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "boolean", retain=True)
-                client.publish(f"{base}/{cluster_name}/{attribute_name}", "false", retain=True)
-            else:
-                client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", attr["type"], retain=True)
-            if attr['writable'] == "true":
+            elif "string" in attr["type"]:
+                client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "string", retain=True)
+            if attr['writable'] == "true" or attr["name"] == "OnOff":
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "true", retain=True)
             else:
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable", "false", retain=True)
     client.publish(f"{base}/$state", "ready", retain=True)
     print(f"\033[1;35mMQTT\033[0m:     Homie device created: {base}")
-
 
 def publish_to_mqtt_broker(client, json_str):
     from matter_utils import get_cluster_name_by_code, get_attribute_name_by_code
@@ -126,12 +136,12 @@ def publish_to_mqtt_broker(client, json_str):
 
     from database import get_device_by_node_id_endpoint
     if node_id > 9223372036854775807 or node_id < -9223372036854775808:
-        print("\033[1;31mMQTT\033[0m:     NodeID exceeds SQLite integer range, setting NodeID to NULL.")
+        print("\033[1;31mMQTT:     NodeID exceeds SQLite integer range, setting NodeID to NULL.")
         node_id = None
 
     device = get_device_by_node_id_endpoint(node_id, endpoint_id)
     if not device:
-        print("\033[1;31mMQTT\033[0m:     Device not found in database.")
+        print("\033[1;31mMQTT:     Device not found in database.")
         return
     devicetype = device.get("DeviceType")
     devicetype = f"0x{int(devicetype):04x}"
@@ -147,12 +157,13 @@ def publish_to_mqtt_broker(client, json_str):
     cluster_name = get_cluster_name_by_code(cluster_code)
 
     if cluster_name not in clusters:
-        print("\033[1;31mMQTT\033[0m:     Cluster not found in device's clusters, skipping MQTT publish.")
+        print("\033[1;31mMQTT:     Cluster not found in device's clusters, skipping MQTT publish.")
         return
     else:
         attribute_code = f"0x{int(attribute_code):04x}"
 
     cluster_name = cluster_name.lower().replace("/", "")
+    cluster_name = re.sub(r' ', '', cluster_name)
     attribute_name = get_attribute_name_by_code(cluster_code, attribute_code)
     topic_id = device.get("TopicID")
     topic = f"homie/{topic_id}/{cluster_name}/{attribute_name}"
@@ -161,7 +172,7 @@ def publish_to_mqtt_broker(client, json_str):
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         print("\033[1;35mMQTT\033[0m:     MQTT publish successful.")
     else:
-        print("\033[1;31mMQTT\033[0m:     MQTT publish failed with result code:", result.rc)
+        print("\033[1;31mMQTT:     MQTT publish failed with result code:", result.rc)
 
 mqtt_client = mqtt.Client(transport="websockets")
 mqtt_client.on_connect = on_connect
