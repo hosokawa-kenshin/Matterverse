@@ -30,11 +30,13 @@ def create_cluster_dict(cluster):
     cluster_id = cluster.get('id', 'Unknown ID').lower()
     attributes = cluster.get('attributes', [])
     commands = cluster.get('commands', [])
+    bitmaps = cluster.get('bitmaps', [])
     data = {
         "id": cluster_id,
         "name": name,
         "attributes": attributes,
         "enums": [],
+        "bitmaps": bitmaps,
         "commands": commands
     }
     return data
@@ -49,8 +51,7 @@ def filter_clusters(clusters_dict):
             optional = attr.get('optional', 'false')
             if optional == 'true':
                 continue
-            # if not "enum" in attribute_type and not "int" in attribute_type and not "bool" in attribute_type and not "string" in attribute_type:
-            if not "int" in attribute_type and not "bool" in attribute_type and not "string" in attribute_type:
+            if not "Enum" in attribute_type and not "enum" in attribute_type and not "int" in attribute_type and not "bool" in attribute_type and not "string" in attribute_type:
                 continue
             filtered_attributes.append(attr)
         if not filtered_attributes:
@@ -59,11 +60,13 @@ def filter_clusters(clusters_dict):
         cluster_id = cluster.get('id', 'Unknown ID').lower()
         cluster_enums = cluster.get('enums', [])
         commands = cluster.get('commands', [])
+        bitmaps = cluster.get('bitmaps', [])
         filtered_cluster = {
             "id": cluster_id,
             "name": cluster_name,
             "attributes": filtered_attributes,
             "enums": cluster_enums,
+            "bitmaps": bitmaps,
             "commands": commands
         }
         filtered_clusters.append(filtered_cluster)
@@ -146,12 +149,26 @@ def parse_enum(enum_elem):
         })
     return enum_data
 
+def parse_bitmap(bitmap_elem):
+    bitmap_data = {
+        "name": bitmap_elem.get("name"),
+        "type": bitmap_elem.get("type"),
+        "fields": [],
+    }
+    for field in bitmap_elem.findall("field"):
+        bitmap_data["fields"].append({
+            "name": field.get("name"),
+            "mask": int(field.get("mask"), 16) if field.get("mask").startswith("0x") else int(field.get("mask")),
+        })
+    return bitmap_data
+
 def parse_cluster_info(cluster_elem):
     cluster = {
         "name": cluster_elem.findtext("name"),
         "id": cluster_elem.findtext("code").lower(),
         "attributes": [],
         "enums": [],
+        "bitmaps": [],
         "commands": [],
         "events": [],
     }
@@ -160,13 +177,12 @@ def parse_cluster_info(cluster_elem):
         cluster["attributes"].append({
             "code": attr.get("code").lower(),
             "name": convert_to_camel_case(attr.get("define")) if attr.get("define") else None,
-            "type": attr.get("type").lower() if attr.get("type") else None,
+            "type": attr.get("type") if attr.get("type") else None,
             "define": attr.get("define"),
             "writable": attr.get("writable") if attr.get("writable") else "false",
             "optional": attr.get("optional") if attr.get("optional") else "false",
             "side": attr.get("side"),
         })
-        # if attr.get("code").startswith("0x0") or not attr.get("code").startswith("0x") else None
 
     for cmd in cluster_elem.findall("command"):
         command = {
@@ -189,15 +205,20 @@ def parse_clusters_info(xml_dir):
 
     clusters = []
     enums = []
+
     for filename in os.listdir(xml_dir):
         if filename.endswith(".xml"):
             path = os.path.join(xml_dir, filename)
             tree = ET.parse(path)
             root = tree.getroot()
             for cluster_elem in root.findall("cluster"):
+                bitmaps = []
                 cluster = parse_cluster_info(cluster_elem)
                 for enum in root.findall("enum"):
                     enums.append(parse_enum(enum))
+                for bitmap in root.findall("bitmap"):
+                    bitmaps.append(parse_bitmap(bitmap))
+                cluster["bitmaps"] = bitmaps
                 clusters.append(cluster)
     temp_clusters = create_clusters_dict(clusters)
     all_clusters = filter_clusters(temp_clusters)

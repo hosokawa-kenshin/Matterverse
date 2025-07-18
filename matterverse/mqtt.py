@@ -100,12 +100,12 @@ def publish_homie_device(client, device):
         for attr in attributes:
             attribute_name = attr["name"]
             client.publish(f"{base}/{cluster_name}/{attribute_name}/$name", attr["name"], retain=True)
-            if "enum" in attr["type"] or attribute_name == "CurrentMode":
+            if "Enum" in attr["type"] or attribute_name == "CurrentMode":
                 client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype", "enum", retain=True)
                 enums = get_enums_by_cluster_name(cluster)
                 for enum in enums:
                     enum_name = enum.get("name", "Unknown")
-                    if (enum_name == "ModeTag" and attribute_name == "CurrentMode") or (enum_name.lower() == attribute_name):
+                    if (enum_name == "ModeTag" and attribute_name == "CurrentMode") or (enum_name == attribute_name):
                         homie_format = convert_items_to_homie_format(enum["items"])
                         client.publish(f"{base}/{cluster_name}/{attribute_name}/$format", homie_format, retain=True)
             elif "int" in attr["type"]:
@@ -125,6 +125,8 @@ def publish_to_mqtt_broker(client, json_str):
     from matter_utils import get_cluster_name_by_code, get_attribute_name_by_code
     print("\033[1;35mMQTT\033[0m:     Publishing to MQTT broker...")
     json_data = json.loads(json_str)
+    sql_max_number = 9223372036854775807
+    sql_min_number = -9223372036854775808
 
     report_data = json_data.get("ReportDataMessage", {})
     attribute_report = report_data.get("AttributeReportIBs", [{}])[0].get("AttributeReportIB", {})
@@ -135,7 +137,7 @@ def publish_to_mqtt_broker(client, json_str):
     endpoint_id = attribute_path.get("Endpoint")
 
     from database import get_device_by_node_id_endpoint
-    if node_id > 9223372036854775807 or node_id < -9223372036854775808:
+    if node_id > sql_max_number or node_id < sql_min_number:
         print("\033[1;31mMQTT:     NodeID exceeds SQLite integer range, setting NodeID to NULL.")
         node_id = None
 
