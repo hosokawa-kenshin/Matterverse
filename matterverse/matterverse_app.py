@@ -1,0 +1,345 @@
+"""
+Main Matterverse application.
+Orchestrates all components and manages application lifecycle.
+"""
+import asyncio
+import signal
+import sys
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+from config import Config
+from logger import Logger, get_chip_logger
+from database_manager import Database
+from data_model_dictionary import DataModelDictionary
+from chip_tool_manager import ChipToolManager
+from mqtt_interface import MQTTInterface
+from websocket_interface import WebSocketInterface
+from subscription_manager import SubscriptionManager
+from device_manager import DeviceManager
+from api_interface import APIInterface
+
+
+class MatterverseApplication:
+    """Main application class for Matterverse."""
+    
+    def __init__(self, config_file: str = None):
+        """
+        Initialize Matterverse application.
+        
+        Args:
+            config_file: Path to configuration file
+        """
+        # Load configuration
+        self.config = Config(config_file)
+        
+        # Setup logging
+        Logger.setup(
+            level=self.config.log_level,
+            enable_colors=self.config.enable_colored_logs
+        )
+        self.logger = get_chip_logger()
+        
+        # Initialize components
+        self.database = None
+        self.data_model = None
+        self.chip_tool = None
+        self.mqtt = None
+        self.websocket = None
+        self.subscription_manager = None
+        self.device_manager = None
+        self.api = None
+        
+        # Task management
+        self._background_tasks = []
+        self._shutdown_event = asyncio.Event()
+        
+        # FastAPI app
+        self.app = None
+    
+    async def initialize(self):
+        """Initialize all components."""
+        try:
+            self.logger.info("Initializing Matterverse application...")
+            
+            # Initialize database
+            self.database = Database(self.config.database_path)
+            
+            # Initialize data model
+            self.data_model = DataModelDictionary()
+            await self._load_data_models()
+            
+            # Initialize chip tool manager
+            self.chip_tool = ChipToolManager(
+                self.config.chip_tool_path,
+                self.config.commissioning_dir,
+                self.config.paa_cert_dir_path
+            )
+            
+            # Initialize WebSocket interface
+            self.websocket = WebSocketInterface()
+            
+            # Initialize MQTT interface
+            self.mqtt = MQTTInterface(
+                self.config.mqtt_broker_url,
+                self.config.mqtt_broker_port
+            )
+            self.mqtt.set_data_model(self.data_model)
+            self.mqtt.set_database(self.database)
+            
+            # Initialize subscription manager
+            self.subscription_manager = SubscriptionManager(
+                self.chip_tool,
+                self.data_model,
+                self.database
+            )
+            
+            # Initialize device manager
+            self.device_manager = DeviceManager(
+                self.chip_tool,
+                self.database,
+                self.data_model
+            )
+            
+            # Initialize API interface
+            self.api = APIInterface(
+                self.device_manager,
+                self.websocket,
+                self.chip_tool
+            )
+            
+            # Setup callbacks
+            self._setup_callbacks()
+            
+            # Create FastAPI app with lifespan
+            self.app = self._create_app()
+            
+            self.logger.info("All components initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error during initialization: {e}")
+            raise
+    
+    async def _load_data_models(self):
+        """Load data models from XML files."""
+        self.logger.info("Loading data models...")
+        
+        # Load clusters
+        success = self.data_model.parse_clusters_from_directory(self.config.cluster_xml_dir)
+        if not success:
+            raise RuntimeError("Failed to load cluster data models")
+        
+        # Load device types
+        success = self.data_model.parse_device_types_from_file(self.config.device_type_xml_file)
+        if not success:
+            raise RuntimeError("Failed to load device type data models")
+        
+        self.logger.info("Data models loaded successfully")
+    
+    def _setup_callbacks(self):
+        """Setup callbacks between components."""
+        # Set chip tool parsed data callback
+        self.chip_tool.set_parsed_data_callback(self._handle_parsed_data)
+        
+        # Set MQTT command callback
+        self.mqtt.set_command_callback(self.chip_tool.execute_command)
+        
+        # Set subscription callback
+        self.subscription_manager.set_subscription_callback(self._handle_subscription_data)
+    
+    async def _handle_parsed_data(self, parsed_json: str):
+        """
+        Handle parsed data from chip tool.
+        
+        Args:
+            parsed_json: Parsed JSON data
+        """
+        try:
+            # Check data type and route accordingly
+            if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
+                # Attribute report - publish to MQTT
+                self.mqtt.publish_attribute_data(parsed_json)
+                
+            elif "InvokeResponseMessage" in parsed_json:
+                # Command response - broadcast to WebSocket
+                await self.websocket.send_parsed_data(parsed_json)
+            
+            # Always broadcast to WebSocket clients
+            await self.websocket.send_parsed_data(parsed_json)
+            
+        except Exception as e:
+            self.logger.error(f"Error handling parsed data: {e}")
+    
+    async def _handle_subscription_data(self, json_data: str):
+        """
+        Handle subscription data.
+        
+        Args:
+            json_data: Subscription data
+        """
+        # Forward to MQTT
+        self.mqtt.publish_attribute_data(json_data)
+    
+    def _create_app(self) -> FastAPI:
+        """Create FastAPI application with lifespan management."""
+        
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            """Application lifespan management."""
+            # Startup
+            await self.startup()
+            yield
+            # Shutdown
+            await self.shutdown()
+        
+        app = FastAPI(
+            title="Matterverse",
+            description="Matter protocol device management server",
+            version="1.0.0",
+            lifespan=lifespan
+        )
+        
+        # Mount API routes
+        app.mount("", self.api.get_app())
+        
+        return app
+    
+    async def startup(self):
+        """Application startup sequence."""
+        try:
+            self.logger.info("Starting Matterverse application...")
+            
+            # Start chip tool
+            await self.chip_tool.start()
+            
+            # Connect MQTT
+            if not self.mqtt.connect():
+                raise RuntimeError("Failed to connect to MQTT broker")
+            
+            # Publish Homie devices
+            self.mqtt.publish_homie_devices()
+            
+            # Start subscriptions
+            subscription_task = asyncio.create_task(
+                self.subscription_manager.subscribe_all_devices()
+            )
+            self._background_tasks.append(subscription_task)
+            
+            # Setup signal handlers
+            self._setup_signal_handlers()
+            
+            self.logger.info("Matterverse application started successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error during startup: {e}")
+            raise
+    
+    async def shutdown(self):
+        """Application shutdown sequence."""
+        try:
+            self.logger.info("Shutting down Matterverse application...")
+            
+            # Set shutdown event
+            self._shutdown_event.set()
+            
+            # Stop subscriptions
+            if self.subscription_manager:
+                await self.subscription_manager.stop_all_subscriptions()
+            
+            # Cancel background tasks
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+            
+            if self._background_tasks:
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            
+            # Disconnect MQTT
+            if self.mqtt:
+                self.mqtt.disconnect()
+            
+            # Stop chip tool
+            if self.chip_tool:
+                await self.chip_tool.stop()
+            
+            # Cleanup WebSocket connections
+            if self.websocket:
+                await self.websocket.cleanup()
+            
+            # Close database
+            if self.database:
+                self.database.close()
+            
+            self.logger.info("Matterverse application shut down successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {e}")
+    
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for graceful shutdown."""
+        def signal_handler(signum, frame):
+            self.logger.info(f"Received signal {signum}, initiating shutdown...")
+            asyncio.create_task(self.shutdown())
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    
+    def get_app(self) -> FastAPI:
+        """Get FastAPI application instance."""
+        return self.app
+
+
+# Global application instance
+app_instance = None
+
+
+async def create_application() -> FastAPI:
+    """
+    Create and initialize Matterverse application.
+    
+    Returns:
+        FastAPI application instance
+    """
+    global app_instance
+    
+    if app_instance is None:
+        app_instance = MatterverseApplication()
+        await app_instance.initialize()
+    
+    return app_instance.get_app()
+
+
+# For uvicorn
+app = None
+
+async def get_app():
+    """Get application instance for uvicorn."""
+    global app
+    if app is None:
+        app = await create_application()
+    return app
+
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    async def main():
+        """Main entry point."""
+        app = await create_application()
+        config = uvicorn.Config(
+            app,
+            host="0.0.0.0",
+            port=8000,
+            log_level="info",
+            reload=False
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Application stopped by user")
+    except Exception as e:
+        print(f"Application error: {e}")
+        sys.exit(1)
