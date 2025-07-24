@@ -34,6 +34,9 @@ class ColoredFormatter(logging.Formatter):
             color = self.COMPONENT_COLORS.get(component, '')
             reset = self.COLORS['RESET']
             record.component = f"{color}{component:<4}{reset}"
+        else:
+            # Set default component for records without component attribute
+            record.component = "SYS "
 
         log_color = self.COLORS.get(record.levelname, '')
         reset = self.COLORS['RESET']
