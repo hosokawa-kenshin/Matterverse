@@ -66,13 +66,45 @@ class SubscriptionManager:
         Args:
             devices: List of device dictionaries
         """
-        for device in devices:
-            task = asyncio.create_task(self._subscribe_device(device))
-            self._subscription_tasks.append(task)
+        subscription_tasks = []
 
-        # Wait for all subscriptions to complete
-        if self._subscription_tasks:
-            await asyncio.gather(*self._subscription_tasks, return_exceptions=True)
+        for device in devices:
+            task = asyncio.create_task(self._subscribe_device_with_timeout(device))
+            subscription_tasks.append(task)
+
+        # Wait for all subscriptions to complete with overall timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*subscription_tasks, return_exceptions=True),
+                timeout=300.0  # 5 minutes overall timeout
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("Overall subscription timeout reached")
+            # Cancel remaining tasks
+            for task in subscription_tasks:
+                if not task.done():
+                    task.cancel()
+
+        self._subscription_tasks.extend(subscription_tasks)
+
+    async def _subscribe_device_with_timeout(self, device: Dict[str, Any]):
+        """
+        Subscribe to all attributes of a single device with timeout.
+
+        Args:
+            device: Device dictionary
+        """
+        try:
+            await asyncio.wait_for(
+                self._subscribe_device(device),
+                timeout=60.0  # 1 minute per device
+            )
+        except asyncio.TimeoutError:
+            node_id = device.get("NodeID")
+            endpoint = device.get("Endpoint")
+            self.logger.error(f"Device subscription timeout: NodeID={node_id}, Endpoint={endpoint}")
+        except Exception as e:
+            self.logger.error(f"Error subscribing to device: {e}")
 
     async def _subscribe_device(self, device: Dict[str, Any]):
         """
@@ -149,11 +181,11 @@ class SubscriptionManager:
                         f"Cluster: {cluster_name_formatted}, Attribute: {attribute_name_formatted}")
 
         try:
-            # Execute subscription command
+            # Execute subscription command with timeout
             await self.chip_tool.execute_command(command)
 
             # Wait for subscription confirmation
-            timeout_seconds = 5
+            timeout_seconds = 3
             confirmed = await self._wait_for_subscription_confirmation(
                 node_id, endpoint, cluster_name, attribute, timeout_seconds
             )
@@ -166,8 +198,10 @@ class SubscriptionManager:
                                   f"Cluster: {cluster_name_formatted}, Attribute: {attribute_name_formatted}")
 
             # Small delay between subscriptions
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.001)
 
+        except asyncio.TimeoutError:
+            self.logger.error(f"Command execution timeout for attribute {attribute_name}")
         except Exception as e:
             self.logger.error(f"Error subscribing to attribute {attribute_name}: {e}")
 
@@ -197,14 +231,42 @@ class SubscriptionManager:
         if not expected_cluster_id or not expected_attribute_code:
             return False
 
-        start_time = asyncio.get_event_loop().time()
+        try:
+            # Use asyncio.wait_for for the entire confirmation process
+            return await asyncio.wait_for(
+                self._wait_for_confirmation_inner(
+                    node_id, endpoint, expected_cluster_id, expected_attribute_code
+                ),
+                timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Subscription confirmation timeout ({timeout_seconds}s) for "
+                              f"NodeID: {node_id}, Endpoint: {endpoint}, Cluster: {cluster_name}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error waiting for subscription confirmation: {e}")
+            return False
 
-        while (asyncio.get_event_loop().time() - start_time) < timeout_seconds:
+    async def _wait_for_confirmation_inner(self, node_id: int, endpoint: int,
+                                         expected_cluster_id: str, expected_attribute_code: str) -> bool:
+        """
+        Inner method for waiting for confirmation (without timeout handling).
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            expected_cluster_id: Expected cluster ID in hex format
+            expected_attribute_code: Expected attribute code in hex format
+
+        Returns:
+            True if confirmed
+        """
+        while True:
             try:
-                # Check for response from chip tool
+                # Check for response from chip tool with shorter timeout
                 json_str = await asyncio.wait_for(
                     self.chip_tool._response_queue.get(),
-                    timeout=1.0
+                    timeout=1  # Shorter internal timeout
                 )
 
                 json_data = json.loads(json_str)
@@ -230,10 +292,13 @@ class SubscriptionManager:
                 response_cluster = attr_path.get("Cluster")
                 response_attribute = attr_path.get("Attribute")
 
+                # Skip if any required field is missing
+                if any(x is None for x in [response_node_id, response_endpoint, response_cluster, response_attribute]):
+                    continue
+
                 # Format for comparison
                 response_cluster_formatted = f"0x{int(response_cluster):04x}"
                 response_attribute_formatted = f"0x{int(response_attribute):04x}"
-
                 # Check if this matches our subscription
                 if (node_id == response_node_id and
                     endpoint == response_endpoint and
@@ -242,17 +307,23 @@ class SubscriptionManager:
 
                     # Notify callback if set
                     if self._subscription_callback:
-                        await self._subscription_callback(json_str)
+                        try:
+                            await self._subscription_callback(json_str)
+                        except Exception as callback_error:
+                            self.logger.error(f"Error in subscription callback: {callback_error}")
 
                     return True
 
             except asyncio.TimeoutError:
+                # Inner timeout - continue loop (outer timeout will handle overall timeout)
+                self.logger.debug("Waiting for subscription confirmation...")
+                continue
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"Invalid JSON in subscription response: {e}")
                 continue
             except Exception as e:
-                self.logger.error(f"Error waiting for subscription confirmation: {e}")
+                self.logger.error(f"Error processing subscription confirmation: {e}")
                 continue
-
-        return False
 
     async def stop_all_subscriptions(self):
         """Stop all active subscriptions."""

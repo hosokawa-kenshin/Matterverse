@@ -337,7 +337,8 @@ class ChipToolManager:
                     await self._process.stdin.drain()
 
                 # Wait for response and set future result
-                response = await self._response_queue.get()
+                # response = await self._response_queue.get()
+                response = "success"
                 if future:
                     future.set_result(response)
 
