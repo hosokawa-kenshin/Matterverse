@@ -35,8 +35,8 @@ class ChipToolParser:
         self.parser = Lark(self.GRAMMAR, start='statement', parser='lalr')
         self.transformer = TreeToJsonTransformer()
 
-    def clean_log_output(self, log: str) -> str:
-        """Clean and format chip-tool log output."""
+    def delete_garbage_from_output(self, log: str) -> str:
+        """Format chip-tool log output."""
         # Remove ANSI color codes
         log = re.sub(r'\x1b\[[0-9;]*m', '', log)
         log = re.sub(r',', '', log)
@@ -367,30 +367,27 @@ class ChipToolManager:
                 ]
 
                 if any(pattern in self._output_buffer for pattern in skip_patterns):
+                    buf = self._output_buffer
                     self._output_buffer = ""
-                    continue
+                    try:
+                        cleaned_output = self.parser.delete_garbage_from_output(buf)
+                        if cleaned_output:
+                            blocks = self.parser.extract_named_blocks(cleaned_output)
+                            for block in blocks:
+                                try:
+                                    parsed_data = self.parser.parse_chip_data(block)
+                                    if parsed_data:
+                                        parsed_json = json.dumps(parsed_data, indent=4)
+                                        await self._response_queue.put(parsed_json)
+                                        await self._parsed_queue.put(parsed_json)
+                                        self.logger.info(f"Parsed data: {parsed_json}")
+                                except Exception as parse_error:
+                                    self.logger.warning(f"Error parsing block: {parse_error}")
+                                    continue
+                    except Exception as clean_error:
+                        self.logger.warning(f"Error cleaning output: {clean_error}")
 
-                # Clean and parse output
-                try:
-                    cleaned_output = self.parser.clean_log_output(self._output_buffer)
-                    if cleaned_output:
-                        blocks = self.parser.extract_named_blocks(cleaned_output)
-
-                        for block in blocks:
-                            try:
-                                parsed_data = self.parser.parse_chip_data(block)
-                                if parsed_data:
-                                    parsed_json = json.dumps(parsed_data, indent=4)
-                                    await self._response_queue.put(parsed_json)
-                                    await self._parsed_queue.put(parsed_json)
-                                    self.logger.info(f"Parsed data: {parsed_json}")
-                            except Exception as parse_error:
-                                self.logger.warning(f"Error parsing block: {parse_error}")
-                                continue
-                except Exception as clean_error:
-                    self.logger.warning(f"Error cleaning output: {clean_error}")
-
-                self._output_buffer = ""
+                    buf = ""
 
             except asyncio.CancelledError:
                 break
