@@ -13,7 +13,7 @@ async def main():
     try:
         print("Starting Matterverse application...")
         app = await create_application()
-        
+
         config = uvicorn.Config(
             app,
             host="0.0.0.0",
@@ -21,10 +21,10 @@ async def main():
             log_level="info",
             reload=False
         )
-        
+
         server = uvicorn.Server(config)
         await server.serve()
-        
+
     except KeyboardInterrupt:
         print("\nApplication stopped by user")
     except Exception as e:

@@ -10,11 +10,11 @@ from logger import get_sql_logger
 
 class Database:
     """Database manager for Matterverse SQLite operations."""
-    
+
     def __init__(self, db_path: str):
         """
         Initialize database manager.
-        
+
         Args:
             db_path: Path to SQLite database file
         """
@@ -22,12 +22,12 @@ class Database:
         self.logger = get_sql_logger()
         self._connection = None
         self._initialize_tables()
-    
+
     def _initialize_tables(self):
         """Create database tables if they don't exist."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Create Device table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS Device (
@@ -38,7 +38,7 @@ class Database:
                 PRIMARY KEY (NodeID, Endpoint)
             )
             ''')
-            
+
             # Create UniqueID table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS UniqueID (
@@ -48,15 +48,15 @@ class Database:
                 PRIMARY KEY (NodeID)
             )
             ''')
-            
+
             conn.commit()
             self.logger.info("Database initialized")
-    
+
     @contextmanager
     def get_connection(self):
         """
         Get database connection with automatic cleanup.
-        
+
         Yields:
             sqlite3.Connection: Database connection
         """
@@ -73,11 +73,11 @@ class Database:
         finally:
             if conn:
                 conn.close()
-    
+
     def get_all_devices(self) -> List[Dict[str, Any]]:
         """
         Get all devices from database.
-        
+
         Returns:
             List of device dictionaries
         """
@@ -92,14 +92,14 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return []
-    
+
     def get_device_by_topic_id(self, topic_id: str) -> Optional[Dict[str, Any]]:
         """
         Get device by topic ID.
-        
+
         Args:
             topic_id: Topic ID to search for
-            
+
         Returns:
             Device dictionary or None if not found
         """
@@ -107,7 +107,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                SELECT NodeID, Endpoint, DeviceType, TopicID 
+                SELECT NodeID, Endpoint, DeviceType, TopicID
                 FROM Device WHERE TopicID = ?
                 """, (topic_id,))
                 row = cursor.fetchone()
@@ -115,14 +115,14 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return None
-    
+
     def get_devices_by_node_id(self, node_id: int) -> List[Dict[str, Any]]:
         """
         Get all devices for a specific node ID.
-        
+
         Args:
             node_id: Node ID to search for
-            
+
         Returns:
             List of device dictionaries
         """
@@ -130,7 +130,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                SELECT NodeID, Endpoint, DeviceType, TopicID 
+                SELECT NodeID, Endpoint, DeviceType, TopicID
                 FROM Device WHERE NodeID = ?
                 """, (node_id,))
                 rows = cursor.fetchall()
@@ -138,28 +138,28 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return []
-    
-    def get_device_by_node_id_endpoint(self, node_id: Optional[int], 
+
+    def get_device_by_node_id_endpoint(self, node_id: Optional[int],
                                      endpoint: Optional[int]) -> Optional[Dict[str, Any]]:
         """
         Get device by node ID and endpoint.
-        
+
         Args:
             node_id: Node ID
             endpoint: Endpoint ID
-            
+
         Returns:
             Device dictionary or None if not found
         """
         if node_id is None or endpoint is None:
             self.logger.warning("NodeID or Endpoint is None")
             return None
-            
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                SELECT NodeID, Endpoint, DeviceType, TopicID 
+                SELECT NodeID, Endpoint, DeviceType, TopicID
                 FROM Device WHERE NodeID = ? AND Endpoint = ?
                 """, (node_id, endpoint))
                 row = cursor.fetchone()
@@ -167,14 +167,14 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return None
-    
+
     def get_endpoints_by_node_id(self, node_id: int) -> List[int]:
         """
         Get all endpoints for a specific node ID.
-        
+
         Args:
             node_id: Node ID to search for
-            
+
         Returns:
             List of endpoint IDs
         """
@@ -188,16 +188,16 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return []
-    
+
     def insert_unique_id(self, node_id: int, device_name: str, unique_id: str) -> bool:
         """
         Insert unique ID information.
-        
+
         Args:
             node_id: Node ID
             device_name: Device name
             unique_id: Unique ID
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -214,11 +214,11 @@ class Database:
         except sqlite3.IntegrityError as e:
             self.logger.error(f"Insert error: {e}")
             return False
-    
+
     def get_new_node_id(self) -> int:
         """
         Get next available node ID.
-        
+
         Returns:
             Next node ID (max existing + 1, or 1 if no devices exist)
         """
@@ -231,17 +231,17 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return 1
-    
+
     def insert_device(self, node_id: int, endpoint: int, device_type: int, topic_id: str) -> bool:
         """
         Insert device information.
-        
+
         Args:
             node_id: Node ID
             endpoint: Endpoint ID
             device_type: Device type
             topic_id: Topic ID
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -258,15 +258,15 @@ class Database:
         except sqlite3.IntegrityError as e:
             self.logger.error(f"Insert error: {e}")
             return False
-    
+
     def delete_device(self, node_id: int, endpoint: int) -> bool:
         """
         Delete device by node ID and endpoint.
-        
+
         Args:
             node_id: Node ID
             endpoint: Endpoint ID
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -282,7 +282,7 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Delete error: {e}")
             return False
-    
+
     def close(self):
         """Close database connection if open."""
         if self._connection:
