@@ -63,18 +63,19 @@ class MatterverseApplication:
         try:
             self.logger.info("Initializing Matterverse application...")
 
-            # Initialize database
-            self.database = Database(self.config.database_path)
-
             # Initialize data model
             self.data_model = DataModelDictionary()
             await self._load_data_models()
+
+            # Initialize database
+            self.database = Database(self.config.database_path, self.data_model)
 
             # Initialize chip tool manager
             self.chip_tool = ChipToolManager(
                 self.config.chip_tool_path,
                 self.config.commissioning_dir,
-                self.config.paa_cert_dir_path
+                self.config.paa_cert_dir_path,
+                self.database
             )
 
             # Initialize WebSocket interface

@@ -215,7 +215,7 @@ class TreeToJsonTransformer(Transformer):
 class ChipToolManager:
     """Manager for chip-tool REPL process and command execution."""
 
-    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str):
+    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str, database: Optional[Any] = None):
         """
         Initialize ChipTool manager.
 
@@ -228,6 +228,7 @@ class ChipToolManager:
         self.commissioning_dir = commissioning_dir
         self.paa_cert_path = paa_cert_path
         self.logger = get_chip_logger()
+        self.database = database
 
         self._process: Optional[asyncio.subprocess.Process] = None
         self._output_buffer = ""
@@ -381,6 +382,7 @@ class ChipToolManager:
                                         parsed_json = json.dumps(parsed_data, indent=4)
                                         await self._response_queue.put(parsed_json)
                                         await self._parsed_queue.put(parsed_json)
+                                        self.database.update_attribute(parsed_json)
                                         self.logger.info(f"Parsed data: {parsed_json}")
                                 except Exception as parse_error:
                                     self.logger.warning(f"Error parsing block: {parse_error}")

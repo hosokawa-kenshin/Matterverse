@@ -255,6 +255,15 @@ class DeviceManager:
             self.logger.error(f"Error getting device types for NodeID {node_id}, Endpoint {endpoint}: {e}")
             return {}
 
+    def get_all_attributes(self) -> List[Dict[str, Any]]:
+        """
+        Get all attributes from database.
+
+        Returns:
+            List of attribute dictionaries
+        """
+        return self.database.get_all_attributes()
+
     def get_all_devices(self) -> List[Dict[str, Any]]:
         """
         Get all devices from database.

@@ -117,6 +117,21 @@ class APIInterface:
                 await self.websocket.send_error(f"Command execution failed: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        @self.app.get("/attributes")
+        async def get_all_attributes():
+            """
+            Get all attributes.
+
+            Returns:
+                List of all attributes
+            """
+            try:
+                attributes = self.device_manager.get_all_attributes()
+                return {"attributes": attributes}
+            except Exception as e:
+                self.logger.error(f"Error getting attributes: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.get("/devices")
         async def get_all_devices():
             """
@@ -340,7 +355,7 @@ class APIInterface:
                 self.logger.error(f"Error writing attribute: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/clusters")
+        @self.app.get("/datamodel/clusters")
         async def get_clusters():
             """
             Get cluster information.
@@ -355,7 +370,7 @@ class APIInterface:
                 self.logger.error(f"Error getting cluster information: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/devicetypes")
+        @self.app.get("/datamodel/devicetypes")
         async def get_device_types():
             """
             Get device type information.

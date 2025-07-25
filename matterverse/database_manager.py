@@ -2,6 +2,7 @@
 Database management for Matterverse application.
 """
 import sqlite3
+import json
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
@@ -11,7 +12,7 @@ from logger import get_sql_logger
 class Database:
     """Database manager for Matterverse SQLite operations."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, data_model: Optional[Any] = None):
         """
         Initialize database manager.
 
@@ -22,6 +23,7 @@ class Database:
         self.logger = get_sql_logger()
         self._connection = None
         self._initialize_tables()
+        self.data_model = data_model
 
     def _initialize_tables(self):
         """Create database tables if they don't exist."""
@@ -103,6 +105,76 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return []
+
+    def get_all_attributes(self) -> List[Dict[str, Any]]:
+        """
+        Get all attributes from database.
+
+        Returns:
+            List of attribute dictionaries
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT NodeID, Endpoint, Cluster, Attribute, Value FROM Attribute
+                """)
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            self.logger.error(f"Query error: {e}")
+            return []
+
+    def update_attribute(self, parsed_json_str: str) -> bool:
+        """
+        Update or insert attribute from parsed JSON string.
+
+        Args:
+            parsed_json_str: Parsed JSON string containing NodeID, Endpoint, Cluster, Attribute, Value
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            json_data = json.loads(parsed_json_str)
+
+                # Check if this is a ReportDataMessage
+            if ("ReportDataMessage" not in json_data or
+                "AttributeReportIBs" not in json_data["ReportDataMessage"]):
+                return False
+
+            # Extract attribute path information
+            report_data = json_data["ReportDataMessage"]
+            attr_reports = report_data.get("AttributeReportIBs", [])
+            if not attr_reports:
+                return False
+
+            attr_report = attr_reports[0].get("AttributeReportIB", {})
+            attr_data = attr_report.get("AttributeDataIB", {})
+            attr_path = attr_data.get("AttributePathIB", {})
+            response_node_id = attr_path.get("NodeID")
+            response_endpoint = attr_path.get("Endpoint")
+            response_cluster_id = attr_path.get("Cluster")
+            response_cluster = self.data_model.get_cluster_name_by_id(f"0x{int(response_cluster_id):04x}")
+            response_attribute_id = attr_path.get("Attribute")
+            response_attribute = self.data_model.get_attribute_name_by_code(f"0x{int(response_cluster_id):04x}",f"0x{int(response_attribute_id):04x}")
+            response_value = attr_data.get("Data", None)
+            print(response_value)
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                INSERT INTO Attribute (NodeID, Endpoint, Cluster, Attribute, Value)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(NodeID, Endpoint, Cluster, Attribute) DO UPDATE SET Value = ?
+                """, (response_node_id, response_endpoint, response_cluster, response_attribute, response_value, response_value))
+                conn.commit()
+                self.logger.info(f"Updated attribute: {parsed_json_str}")
+                return True
+        except sqlite3.Error as e:
+            self.logger.error(f"Update error: {e}")
+            return False
+
 
     def get_device_by_topic_id(self, topic_id: str) -> Optional[Dict[str, Any]]:
         """
