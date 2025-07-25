@@ -94,7 +94,7 @@ class DeviceManager:
                 device_types = await self._get_endpoint_device_types(node_id, endpoint)
                 if device_types:
                     # Use first device type
-                    device_type = int(device_types.get("0x0", 0))
+                    device_type = int(device_types[0].get("0x0"))
 
                     if not self.database.insert_device(node_id, endpoint, device_type, topic_id):
                         self.logger.error(f"Failed to insert device: NodeID={node_id}, Endpoint={endpoint}")
@@ -105,12 +105,87 @@ class DeviceManager:
                 else:
                     self.logger.warning(f"No device types found for endpoint {endpoint}")
 
+                clusters = await self._get_cluster_list(node_id, endpoint)
+                if not clusters:
+                    self.logger.warning(f"No clusters found for NodeID {node_id}")
+                else:
+                    self.logger.info(f"Found clusters for NodeID {node_id}: {clusters}")
+                    # Register clusters and attributes
+                    for cluster in clusters:
+                        attributes = await self._get_attribute_list(node_id, endpoint, cluster)
+                        if not attributes:
+                            self.logger.warning(f"No attributes found for NodeID {node_id}, Cluster {cluster}")
+                        else:
+                            self.logger.info(f"Found attributes for NodeID {node_id}, Cluster {cluster}: {attributes}")
+                            # Insert each attribute into the database
+                            for attribute in attributes:
+                                if not self.database.create_attribute_entry(node_id, endpoint, cluster, attribute):
+                                    self.logger.error(f"Failed to insert attribute: NodeID={node_id}, "
+                                                      f"Endpoint={endpoint}, Cluster={cluster}, Attribute={attribute}")
+
             self.logger.info(f"Device registration completed for NodeID: {node_id}")
             return True
 
         except Exception as e:
             self.logger.error(f"Error during device registration: {e}")
             return False
+
+    async def _get_cluster_list(self, node_id: int, endpoint: int) -> List[str]:
+        """
+        Get cluster list from device.
+
+        Args:
+            node_id: Node ID
+
+        Returns:
+            List of cluster names
+        """
+        try:
+            clusters_raw = await self.chip_tool.get_cluster_list(node_id, endpoint)
+            clusters = [
+                self.data_model.get_cluster_name_by_id(f"0x{int(cluster):04x}")
+                for cluster in clusters_raw
+                if self.data_model.get_cluster_name_by_id(f"0x{int(cluster):04x}") is not None
+            ]
+
+            if clusters:
+                self.logger.info(f"Got clusters for NodeID {node_id}: {clusters}")
+                return clusters
+            else:
+                self.logger.warning(f"No clusters found for NodeID {node_id}")
+                return []
+        except Exception as e:
+            self.logger.error(f"Error getting clusters for NodeID {node_id}: {e}")
+            return []
+
+    async def _get_attribute_list(self, node_id: int, endpoint: int, cluster_name: str) -> List[str]:
+        """
+        Get attribute list for a specific cluster.
+
+        Args:
+            node_id: Node ID
+            cluster_name: Cluster name
+
+        Returns:
+            List of attribute dictionaries
+        """
+        try:
+            attributes_raw = await self.chip_tool.get_attribute_list(node_id, endpoint,cluster_name)
+            cluster_id = self.data_model.get_cluster_id_by_name(cluster_name)
+            attributes = [
+                self.data_model.get_attribute_name_by_code(cluster_id, f"0x{int(attr):04x}")
+                for attr in attributes_raw
+                if self.data_model.get_attribute_name_by_code(cluster_id, f"0x{int(attr):04x}") is not None
+            ]
+            if attributes:
+                self.logger.info(f"Got attributes for NodeID {node_id}, Cluster {cluster_name}: {attributes}")
+                return attributes
+            else:
+                self.logger.warning(f"No attributes found for NodeID {node_id}, Cluster {cluster_name}")
+                return []
+        except Exception as e:
+            self.logger.error(f"Error getting attributes for NodeID {node_id}, Cluster {cluster_name}: {e}")
+            return []
 
     async def _get_device_basic_info(self, node_id: int, attribute: str) -> Optional[str]:
         """

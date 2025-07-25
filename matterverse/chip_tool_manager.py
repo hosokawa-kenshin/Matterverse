@@ -409,6 +409,92 @@ class ChipToolManager:
             except Exception as e:
                 self.logger.error(f"Error handling parsed data: {e}")
 
+
+    async def get_cluster_list(self, node_id: int, endpoint: int) -> list:
+        """
+        Get cluster list for a specific endpoint.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+
+        Returns:
+            List of clusters
+        """
+        command = f"descriptor read server-list {node_id} {endpoint}"
+        await self.execute_command(command)
+
+        while True:
+            json_str = await self._response_queue.get()
+            json_data = json.loads(json_str)
+
+            if ("ReportDataMessage" in json_str and
+                "AttributeReportIBs" in json_str):
+
+                report_data = json_data.get("ReportDataMessage", {})
+                attr_reports = report_data.get("AttributeReportIBs", [])
+
+                if attr_reports:
+                    attr_report = attr_reports[0].get("AttributeReportIB", {})
+                    attr_data = attr_report.get("AttributeDataIB", {})
+                    attr_path = attr_data.get("AttributePathIB", {})
+
+                    response_node_id = attr_path.get("NodeID")
+                    response_endpoint = attr_path.get("Endpoint")
+                    if response_node_id == node_id and response_endpoint == endpoint:
+                        clusters = []
+                        for cluster in attr_data.get("Data", []):
+                            clusters.append(int(cluster))
+                        return clusters
+                    continue
+
+            break
+
+        return []
+
+    async def get_attribute_list(self, node_id: int, endpoint: int, cluster_name: str) -> list:
+        """
+        Get attribute list for a specific cluster.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            cluster_name: Cluster name
+
+        Returns:
+            Dictionary of attributes
+        """
+        cluster_name = ''.join(cluster_name.split()).replace('/', '').lower()
+        command = f"{cluster_name} read attribute-list {node_id} {endpoint}"
+        await self.execute_command(command)
+
+        while True:
+            json_str = await self._response_queue.get()
+            json_data = json.loads(json_str)
+
+            if ("ReportDataMessage" in json_str and
+                "AttributeReportIBs" in json_str):
+
+                report_data = json_data.get("ReportDataMessage", {})
+                attr_reports = report_data.get("AttributeReportIBs", [])
+
+                if attr_reports:
+                    attr_report = attr_reports[0].get("AttributeReportIB", {})
+                    attr_data = attr_report.get("AttributeDataIB", {})
+                    attr_path = attr_data.get("AttributePathIB", {})
+
+                    response_node_id = attr_path.get("NodeID")
+                    response_endpoint = attr_path.get("Endpoint")
+                    if response_node_id == node_id and response_endpoint == endpoint:
+                        attributes =[]
+                        for attribute in attr_data.get("Data", []):
+                            attributes.append(int(attribute))
+                        return attributes
+                    continue
+            break
+        return []
+
+
     async def get_basic_info(self, node_id: int, attribute: str) -> Optional[str]:
         """
         Get basic information attribute from device.
@@ -436,8 +522,11 @@ class ChipToolManager:
                 if attr_reports:
                     attr_report = attr_reports[0].get("AttributeReportIB", {})
                     attr_data = attr_report.get("AttributeDataIB", {})
-                    return str(attr_data.get("Data", ""))
+                    attr_path = attr_data.get("AttributePathIB", {})
 
+                    if attr_path.get("NodeID") == node_id:
+                        return str(attr_data.get("Data", ""))
+                    continue
             break
 
         return None
@@ -469,7 +558,11 @@ class ChipToolManager:
                     attr_report = attr_reports[0].get("AttributeReportIB", {})
                     attr_data = attr_report.get("AttributeDataIB", {})
                     data = attr_data.get("Data", [])
-                    return [int(endpoint) for endpoint in data]
+                    attr_path = attr_data.get("AttributePathIB", {})
+
+                    if attr_path.get("NodeID") == node_id:
+                        return [int(endpoint) for endpoint in data]
+                continue
 
             break
 
@@ -502,7 +595,11 @@ class ChipToolManager:
                 if attr_reports:
                     attr_report = attr_reports[0].get("AttributeReportIB", {})
                     attr_data = attr_report.get("AttributeDataIB", {})
-                    return attr_data.get("Data", {})
+                    attr_path = attr_data.get("AttributePathIB", {})
+
+                    if attr_path.get("NodeID") == node_id:
+                        return attr_data.get("Data", {})
+                continue
 
             break
 

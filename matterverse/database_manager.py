@@ -49,6 +49,17 @@ class Database:
             )
             ''')
 
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS Attribute (
+                NodeID INTEGER,
+                Endpoint INTEGER,
+                Cluster TEXT,
+                Attribute TEXT,
+                Value TEXT,
+                PRIMARY KEY (NodeID, Endpoint, Cluster, Attribute)
+            )
+            ''')
+
             conn.commit()
             self.logger.info("Database initialized")
 
@@ -189,6 +200,50 @@ class Database:
             self.logger.error(f"Query error: {e}")
             return []
 
+    def get_clusters_by_node_id_endpoint(self, node_id: int, endpoint: int) -> List[str]:
+        """
+        Get all clusters for a specific node ID and endpoint.
+
+        Args:
+            node_id: Node ID to search for
+            endpoint: Endpoint ID to search for
+
+        Returns:
+            List of cluster names
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT Cluster FROM Attribute WHERE NodeID = ? AND Endpoint = ?
+                """, (node_id, endpoint))
+                return [row[0] for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            self.logger.error(f"Query error: {e}")
+            return []
+
+    def get_attributenames_by_node_id_endpoint_cluster_name(self, node_id: int, endpoint: int, cluster_name: str) -> List[str]:
+        """
+        Get all attribute names for a specific node ID, endpoint, and cluster name.
+
+        Args:
+            node_id: Node ID to search for
+            endpoint: Endpoint ID to search for
+
+        Returns:
+            List of attribute names
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT Attribute FROM Attribute WHERE NodeID = ? AND Endpoint = ? AND Cluster = ?
+                """, (node_id, endpoint, cluster_name))
+                return [row[0] for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            self.logger.error(f"Query error: {e}")
+            return []
+
     def insert_unique_id(self, node_id: int, device_name: str, unique_id: str) -> bool:
         """
         Insert unique ID information.
@@ -257,6 +312,36 @@ class Database:
                 return True
         except sqlite3.IntegrityError as e:
             self.logger.error(f"Insert error: {e}")
+            return False
+
+    def create_attribute_entry(self, node_id: int, endpoint: int, cluster: str, attribute: str) -> bool:
+        """
+        Create or update attribute entry.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            cluster: Cluster name
+            attribute: Attribute name
+            value: Attribute value
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                value = None
+                cursor.execute("""
+                INSERT INTO Attribute (NodeID, Endpoint, Cluster, Attribute, Value)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(NodeID, Endpoint, Cluster, Attribute) DO UPDATE SET Value = ?
+                """, (node_id, endpoint, cluster, attribute, value, value))
+                conn.commit()
+                self.logger.info(f"Inserted/Updated attribute: NodeID={node_id}, Endpoint={endpoint}, Cluster={cluster}, Attribute={attribute}, Value={value}")
+                return True
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Insert/Update error: {e}")
             return False
 
     def delete_device(self, node_id: int, endpoint: int) -> bool:

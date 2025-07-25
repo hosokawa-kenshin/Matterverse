@@ -324,6 +324,11 @@ class DataModelDictionary:
         """Get cluster by ID."""
         return next((cluster for cluster in self._clusters if cluster.get("id") == cluster_id), None)
 
+    def get_cluster_id_by_name(self, name: str) -> Optional[str]:
+        """Get cluster ID by name."""
+        cluster = self.get_cluster_by_name(name)
+        return cluster.get("id") if cluster else None
+
     def get_device_type_by_id(self, device_type_id: str) -> Optional[Dict[str, Any]]:
         """Get device type by ID."""
         return next((dt for dt in self._device_types if dt.get("id") == device_type_id), None)
@@ -355,4 +360,13 @@ class DataModelDictionary:
             for attribute in cluster.get("attributes", []):
                 if attribute.get("code") == attribute_code:
                     return attribute.get("name")
+        return None
+
+    def get_attribute_code_by_name(self, cluster_id: str, attribute_name: str) -> Optional[str]:
+        """Get attribute code by cluster ID and attribute name."""
+        cluster = self.get_cluster_by_id(cluster_id)
+        if cluster:
+            for attribute in cluster.get("attributes", []):
+                if attribute.get("name") == attribute_name:
+                    return attribute.get("code")
         return None

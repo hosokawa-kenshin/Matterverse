@@ -122,10 +122,10 @@ class SubscriptionManager:
             return
 
         device_type_hex = f"0x{int(device_type):04x}"
-        clusters = self.data_model.get_clusters_by_device_type(device_type_hex)
+        # clusters = self.data_model.get_clusters_by_device_type(device_type_hex)
 
         self.logger.info(f"Subscribing to device NodeID: {node_id}, Endpoint: {endpoint}, DeviceType: {device_type_hex}")
-
+        clusters = self.database.get_clusters_by_node_id_endpoint(node_id, endpoint)
         for cluster_name in clusters:
             await self._subscribe_cluster_attributes(node_id, endpoint, cluster_name)
 
@@ -140,12 +140,7 @@ class SubscriptionManager:
             endpoint: Endpoint ID
             cluster_name: Cluster name
         """
-        cluster_info = self.data_model.get_cluster_by_name(cluster_name)
-        if not cluster_info:
-            self.logger.warning(f"Cluster info not found for: {cluster_name}")
-            return
-
-        attributes = cluster_info.get("attributes", [])
+        attributes = self.database.get_attributenames_by_node_id_endpoint_cluster_name(node_id, endpoint, cluster_name)
         if not attributes:
             self.logger.warning(f"No attributes found for cluster: {cluster_name}")
             return
@@ -154,7 +149,7 @@ class SubscriptionManager:
             await self._subscribe_attribute(node_id, endpoint, cluster_name, attribute)
 
     async def _subscribe_attribute(self, node_id: int, endpoint: int,
-                                 cluster_name: str, attribute: Dict[str, Any]):
+                                 cluster_name: str, attribute: str):
         """
         Subscribe to a specific attribute.
 
@@ -164,12 +159,9 @@ class SubscriptionManager:
             cluster_name: Cluster name
             attribute: Attribute dictionary
         """
-        attribute_name = attribute.get("name")
-        if not attribute_name:
-            return
 
         # Convert attribute name to chip-tool format
-        attribute_name_formatted = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute_name).lower()
+        attribute_name_formatted = re.sub(r'(?<!^)(?<![A-Z])(?=[A-Z])', '-', attribute).lower()
 
         # Convert cluster name to chip-tool format
         cluster_name_formatted = cluster_name.lower().replace("/", "").replace(" ", "")
@@ -201,12 +193,12 @@ class SubscriptionManager:
             await asyncio.sleep(0.01)
 
         except asyncio.TimeoutError:
-            self.logger.error(f"Command execution timeout for attribute {attribute_name}")
+            self.logger.error(f"Command execution timeout for attribute {attribute}")
         except Exception as e:
-            self.logger.error(f"Error subscribing to attribute {attribute_name}: {e}")
+            self.logger.error(f"Error subscribing to attribute {attribute}: {e}")
 
     async def _wait_for_subscription_confirmation(self, node_id: int, endpoint: int,
-                                                cluster_name: str, attribute: Dict[str, Any],
+                                                cluster_name: str, attribute_name: str,
                                                 timeout_seconds: int = 5) -> bool:
         """
         Wait for subscription confirmation.
@@ -226,7 +218,7 @@ class SubscriptionManager:
             return False
 
         expected_cluster_id = cluster_info.get("id")
-        expected_attribute_code = attribute.get("code")
+        expected_attribute_code = self.data_model.get_attribute_code_by_name(expected_cluster_id, attribute_name)
 
         if not expected_cluster_id or not expected_attribute_code:
             return False
