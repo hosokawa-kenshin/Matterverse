@@ -153,6 +153,9 @@ class Database:
             attr_data = attr_report.get("AttributeDataIB", {})
             attr_path = attr_data.get("AttributePathIB", {})
             response_node_id = attr_path.get("NodeID")
+            if response_node_id == "UNKNOWN":
+                self.logger.warning("Received UNKNOWN NodeID, skipping update")
+                return False
             response_endpoint = attr_path.get("Endpoint")
             response_cluster_id = attr_path.get("Cluster")
             response_cluster = self.data_model.get_cluster_name_by_id(f"0x{int(response_cluster_id):04x}")

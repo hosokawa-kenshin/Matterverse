@@ -1,4 +1,11 @@
 .env
+.vscode/
 __pycache__/
 *.log
 *.dev
+.coverage
+tests/
+requirements-test.txt
+pyproject.toml
+htmlcov/
+.pytest_cache/

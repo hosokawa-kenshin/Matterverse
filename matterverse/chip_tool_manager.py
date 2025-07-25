@@ -354,7 +354,7 @@ class ChipToolManager:
 
         while True:
             try:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.001)
 
                 if not self._output_buffer:
                     continue
