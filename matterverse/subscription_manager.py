@@ -185,7 +185,7 @@ class SubscriptionManager:
             await self.chip_tool.execute_command(command)
 
             # Wait for subscription confirmation
-            timeout_seconds = 3
+            timeout_seconds = 10
             confirmed = await self._wait_for_subscription_confirmation(
                 node_id, endpoint, cluster_name, attribute, timeout_seconds
             )
@@ -198,7 +198,7 @@ class SubscriptionManager:
                                   f"Cluster: {cluster_name_formatted}, Attribute: {attribute_name_formatted}")
 
             # Small delay between subscriptions
-            await asyncio.sleep(0.001)
+            await asyncio.sleep(0.01)
 
         except asyncio.TimeoutError:
             self.logger.error(f"Command execution timeout for attribute {attribute_name}")

@@ -33,7 +33,7 @@ class AttributeRequest(BaseModel):
 class APIInterface:
     """API interface for REST endpoints."""
 
-    def __init__(self, device_manager, websocket_interface, chip_tool_manager):
+    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model):
         """
         Initialize API interface.
 
@@ -45,6 +45,7 @@ class APIInterface:
         self.device_manager = device_manager
         self.websocket = websocket_interface
         self.chip_tool = chip_tool_manager
+        self.data_model = data_model
         self.logger = get_api_logger()
 
         self.app = FastAPI(title="Matterverse API", version="1.0.0")
@@ -337,6 +338,36 @@ class APIInterface:
                 raise
             except Exception as e:
                 self.logger.error(f"Error writing attribute: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/clusters")
+        async def get_clusters():
+            """
+            Get cluster information.
+
+            Returns:
+                Cluster information
+            """
+            try:
+                cluster_info = self.data_model.clusters
+                return {"clusters": cluster_info}
+            except Exception as e:
+                self.logger.error(f"Error getting cluster information: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/devicetypes")
+        async def get_device_types():
+            """
+            Get device type information.
+
+            Returns:
+                Device type information
+            """
+            try:
+                device_types = self.data_model.device_types
+                return {"device_types": device_types}
+            except Exception as e:
+                self.logger.error(f"Error getting device types: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.websocket("/ws")

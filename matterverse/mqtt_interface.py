@@ -296,6 +296,9 @@ class MQTTInterface:
             if node_id and (node_id > sql_max_number or node_id < sql_min_number):
                 self.logger.error("NodeID exceeds SQLite integer range, setting NodeID to NULL")
                 node_id = None
+            if isinstance(node_id, str) and (node_id == "UNKNOWN" or not node_id.replace('0x', '').isalnum()):
+                self.logger.error(f"Skipping MQTT publish for invalid NodeID: {node_id}")
+                return False
 
             device = self._database.get_device_by_node_id_endpoint(node_id, endpoint_id)
             if not device:

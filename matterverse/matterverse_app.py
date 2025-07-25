@@ -106,7 +106,8 @@ class MatterverseApplication:
             self.api = APIInterface(
                 self.device_manager,
                 self.websocket,
-                self.chip_tool
+                self.chip_tool,
+                self.data_model
             )
 
             # Setup callbacks
