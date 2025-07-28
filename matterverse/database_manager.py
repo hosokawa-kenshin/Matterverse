@@ -162,7 +162,6 @@ class Database:
             response_attribute_id = attr_path.get("Attribute")
             response_attribute = self.data_model.get_attribute_name_by_code(f"0x{int(response_cluster_id):04x}",f"0x{int(response_attribute_id):04x}")
             response_value = attr_data.get("Data", None)
-            print(response_value)
 
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -172,7 +171,7 @@ class Database:
                 ON CONFLICT(NodeID, Endpoint, Cluster, Attribute) DO UPDATE SET Value = ?
                 """, (response_node_id, response_endpoint, response_cluster, response_attribute, response_value, response_value))
                 conn.commit()
-                self.logger.info(f"Updated attribute: {parsed_json_str}")
+                self.logger.info(f"Updated attribute: NodeID={response_node_id}, Endpoint={response_endpoint}, Cluster={response_cluster}, Attribute={response_attribute}, Value={response_value}")
                 return True
         except sqlite3.Error as e:
             self.logger.error(f"Update error: {e}")

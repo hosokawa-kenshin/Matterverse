@@ -48,17 +48,24 @@ class DataModelDictionary:
         try:
             clusters = []
             enums = []
+            bitmaps = []
+            structs = []
 
             for filename in os.listdir(xml_dir):
                 if filename.endswith(".xml"):
                     path = os.path.join(xml_dir, filename)
-                    file_clusters, file_enums = self._parse_cluster_file(path)
+                    file_clusters, file_enums, file_structs, file_bitmaps = self._parse_cluster_file(path)
                     clusters.extend(file_clusters)
                     enums.extend(file_enums)
+                    structs.extend(file_structs)
+                    bitmaps.extend(file_bitmaps)
 
             # Process and filter clusters
-            self._clusters = self._filter_clusters(clusters)
+            # self._clusters = self._filter_clusters(clusters)
+            self._clusters = clusters
             self._enums = enums
+            self._structs = structs
+            self._bitmaps = bitmaps
 
             # Associate enums with clusters
             self._associate_enums_with_clusters()
@@ -91,7 +98,8 @@ class DataModelDictionary:
                     device_types.append(device_type)
 
             # Filter device types based on available clusters
-            self._device_types = self._filter_device_types(device_types)
+            # self._device_types = self._filter_device_types(device_types)
+            self._device_types = device_types
 
             self.logger.info(f"Parsed {len(self._device_types)} device types from {xml_file}")
             return True
@@ -107,6 +115,8 @@ class DataModelDictionary:
 
         clusters = []
         enums = []
+        bitmaps = []
+        structs = []
 
         for cluster_elem in root.findall("cluster"):
             cluster = self._parse_cluster(cluster_elem)
@@ -118,7 +128,17 @@ class DataModelDictionary:
             if enum:
                 enums.append(enum)
 
-        return clusters, enums
+        for struct_elem in root.findall("struct"):
+            struct = self._parse_struct(struct_elem)
+            if struct:
+                structs.append(struct)
+
+        for bitmap_elem in root.findall("bitmap"):
+            bitmap = self._parse_bitmap(bitmap_elem)
+            if bitmap:
+                bitmaps.append(bitmap)
+
+        return clusters, enums, structs, bitmaps
 
     def _parse_cluster(self, cluster_elem) -> Optional[Dict[str, Any]]:
         """Parse cluster information from XML element."""
@@ -159,12 +179,6 @@ class DataModelDictionary:
                 })
             cluster["commands"].append(command)
 
-        # Parse bitmaps
-        for bitmap_elem in cluster_elem.findall("bitmap"):
-            bitmap = self._parse_bitmap(bitmap_elem)
-            if bitmap:
-                cluster["bitmaps"].append(bitmap)
-
         return cluster
 
     def _parse_enum(self, enum_elem) -> Optional[Dict[str, Any]]:
@@ -197,13 +211,71 @@ class DataModelDictionary:
 
         return enum_data
 
+    def _parse_struct(self, struct_elem) -> Optional[Dict[str, Any]]:
+        """Parse struct information from XML element."""
+        struct_data = {
+            "name": struct_elem.get("name"),
+            "api_maturity": struct_elem.get("apiMaturity"),
+            "clusters": [],
+            "fields": []
+        }
+
+        for cluster in struct_elem.findall("cluster"):
+            struct_data["clusters"].append({
+                "id": cluster.get("code", "").lower(),
+            })
+
+        for item in struct_elem.findall("item"):
+            field_data = self._parse_struct_field(item)
+            if field_data:
+                struct_data["fields"].append(field_data)
+
+        return struct_data if struct_data["name"] else None
+
+    def _parse_struct_field(self, item_elem) -> Optional[Dict[str, Any]]:
+        """Parse struct field information from XML element."""
+        field_data = {
+            "field_id": self._parse_int_value(item_elem.get("fieldId", "0")),
+            "name": item_elem.get("name"),
+            "type": item_elem.get("type"),
+            "optional": item_elem.get("optional") == "true",
+            "nullable": item_elem.get("isNullable") == "true",
+            "default": item_elem.get("default"),
+            "min": self._parse_int_value(item_elem.get("min")) if item_elem.get("min") else None,
+            "max": self._parse_int_value(item_elem.get("max")) if item_elem.get("max") else None,
+            "length": self._parse_int_value(item_elem.get("length")) if item_elem.get("length") else None
+        }
+
+        field_data = {k: v for k, v in field_data.items() if v is not None and v != ""}
+
+        return field_data if field_data.get("name") else None
+
+    def _parse_int_value(self, value_str: str) -> Optional[int]:
+        """Parse integer value from string (supports hex)."""
+        if not value_str:
+            return None
+
+        try:
+            if value_str.startswith("0x"):
+                return int(value_str, 16)
+            else:
+                return int(value_str)
+        except ValueError:
+            return None
+
     def _parse_bitmap(self, bitmap_elem) -> Optional[Dict[str, Any]]:
         """Parse bitmap information from XML element."""
         bitmap_data = {
             "name": bitmap_elem.get("name"),
+            "clusters": [],
             "type": bitmap_elem.get("type"),
             "fields": [],
         }
+
+        for cluster in bitmap_elem.findall("cluster"):
+            bitmap_data["clusters"].append({
+                "id": cluster.get("code", "").lower(),
+            })
 
         for field in bitmap_elem.findall("field"):
             mask_str = field.get("mask", "0")
@@ -253,14 +325,11 @@ class DataModelDictionary:
 
             for attr in attributes:
                 attribute_type = attr.get('type', '')
-                optional = attr.get('optional', 'false')
-
-                # Skip optional attributes
-                if optional == 'true':
-                    continue
 
                 # Filter by supported types
-                supported_types = ['Enum', 'enum', 'int', 'bool', 'string']
+                supported_types = ['int', 'bool', 'string', 'Bitmap', 'Enum', 'array','Struct']
+                if 'Struct' in attribute_type:
+                    print(f"Skipping struct type attribute: {attr.get('name')}")
                 if any(t in attribute_type for t in supported_types):
                     filtered_attributes.append(attr)
 
@@ -274,6 +343,7 @@ class DataModelDictionary:
                 "attributes": filtered_attributes,
                 "enums": cluster.get('enums', []),
                 "bitmaps": cluster.get('bitmaps', []),
+                "structs": cluster.get('structs', []),
                 "commands": cluster.get('commands', [])
             }
             filtered_clusters.append(filtered_cluster)
@@ -309,6 +379,19 @@ class DataModelDictionary:
                 for cluster in self._clusters:
                     if include_cluster.get("id") == cluster.get("id"):
                         cluster["enums"].append(enum)
+        for bitmap in self._bitmaps:
+            include_clusters = bitmap.get("clusters", [])
+            print(f"Associating bitmap {bitmap['name']} with clusters: {include_clusters}")
+            for include_cluster in include_clusters:
+                for cluster in self._clusters:
+                    if include_cluster.get("id") == cluster.get("id"):
+                        cluster.setdefault("bitmaps", []).append(bitmap)
+        for struct in self._structs:
+            include_clusters = struct.get("clusters", [])
+            for include_cluster in include_clusters:
+                for cluster in self._clusters:
+                    if include_cluster.get("id") == cluster.get("id"):
+                        cluster.setdefault("structs", []).append(struct)
 
     def _convert_to_camel_case(self, snake_str: str) -> str:
         """Convert snake_case to CamelCase."""
