@@ -381,7 +381,6 @@ class DataModelDictionary:
                         cluster["enums"].append(enum)
         for bitmap in self._bitmaps:
             include_clusters = bitmap.get("clusters", [])
-            print(f"Associating bitmap {bitmap['name']} with clusters: {include_clusters}")
             for include_cluster in include_clusters:
                 for cluster in self._clusters:
                     if include_cluster.get("id") == cluster.get("id"):

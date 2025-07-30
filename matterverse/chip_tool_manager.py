@@ -6,9 +6,31 @@ import asyncio
 import json
 import re
 from typing import Optional, Dict, Any, Callable
+from dataclasses import dataclass
+from datetime import datetime
 from lark import Lark, Transformer
 
 from logger import get_chip_logger
+
+
+@dataclass
+class ChipToolResponse:
+    """Response from chip-tool command execution."""
+    status: str
+    command: str
+    data: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    timestamp: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "status": self.status,
+            "command": self.command,
+            "data": self.data,
+            "error_message": self.error_message,
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 class ChipToolParser:
@@ -215,7 +237,7 @@ class TreeToJsonTransformer(Transformer):
 class ChipToolManager:
     """Manager for chip-tool REPL process and command execution."""
 
-    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str, database: Optional[Any] = None):
+    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str, config=None, database: Optional[Any] = None):
         """
         Initialize ChipTool manager.
 
@@ -223,10 +245,13 @@ class ChipToolManager:
             chip_tool_path: Path to chip-tool executable
             commissioning_dir: Path to commissioning directory
             paa_cert_path: Path to PAA certificate directory
+            config: Configuration object
+            database: Database reference
         """
         self.chip_tool_path = chip_tool_path
         self.commissioning_dir = commissioning_dir
         self.paa_cert_path = paa_cert_path
+        self.config = config
         self.logger = get_chip_logger()
         self.database = database
 
@@ -235,6 +260,12 @@ class ChipToolManager:
         self._request_queue = asyncio.Queue()
         self._response_queue = asyncio.Queue()
         self._parsed_queue = asyncio.Queue()
+
+        # Future management for commands
+        self._pending_requests: Dict[str, asyncio.Future] = {}
+        self._command_timeouts: Dict[str, float] = {}
+        self._current_command_id: Optional[str] = None
+        self._current_command: Optional[str] = None
 
         self.parser = ChipToolParser()
         self._tasks = []
@@ -291,22 +322,46 @@ class ChipToolManager:
         """Set callback for parsed data."""
         self._on_parsed_data = callback
 
-    async def execute_command(self, command: str) -> str:
+    async def execute_command(self, command: str, timeout: float = 30.0) -> ChipToolResponse:
         """
-        Execute command and wait for response.
+        Execute command and wait for parsed response.
 
         Args:
             command: Command to execute
+            timeout: Command timeout in seconds
 
         Returns:
-            Response from chip-tool
+            ChipToolResponse with parsed data
         """
         self.logger.info(f"Executing command: {command}")
 
+        # Create future and associate with command
         future = asyncio.get_event_loop().create_future()
-        await self._request_queue.put((None, command, future))
-        result = await future
-        return result
+        command_id = f"{command}_{id(future)}"  # Unique ID
+
+        self._pending_requests[command_id] = future
+        self._command_timeouts[command_id] = timeout
+
+        try:
+            # Add command to queue
+            await self._request_queue.put((command_id, command, future))
+
+            # Wait for result with timeout
+            result = await asyncio.wait_for(future, timeout=timeout)
+            return result
+
+        except asyncio.TimeoutError:
+            # Handle timeout
+            self.logger.error(f"Command timeout: {command}")
+            return ChipToolResponse(
+                status="timeout",
+                command=command,
+                error_message=f"Command timed out after {timeout} seconds"
+            )
+        finally:
+            # Cleanup
+            self._pending_requests.pop(command_id, None)
+            self._command_timeouts.pop(command_id, None)
 
     async def _read_output(self):
         """Read output from chip-tool process."""
@@ -327,29 +382,38 @@ class ChipToolManager:
                 break
 
     async def _process_requests(self):
-        """Process command requests."""
+        """Process command requests with response handling."""
         while True:
             try:
-                websocket, command, future = await self._request_queue.get()
+                command_id, command, future = await self._request_queue.get()
 
                 if self._process and self._process.stdin:
                     command_line = f"{command}\n"
                     self._process.stdin.write(command_line.encode())
                     await self._process.stdin.drain()
 
-                # Wait for response and set future result
-                # response = await self._response_queue.get()
-                response = "success"
-                if future:
-                    future.set_result(response)
+                    # Store command ID for response matching
+                    self._current_command_id = command_id
+                    self._current_command = command
+
+                    # Result will be set in _parse_output
+                    # Don't set future result here
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"Error processing request: {e}")
+                # Set error response for future
+                if command_id in self._pending_requests:
+                    error_response = ChipToolResponse(
+                        status="error",
+                        command=command,
+                        error_message=str(e)
+                    )
+                    self._pending_requests[command_id].set_result(error_response)
 
     async def _parse_output(self):
-        """Parse chip-tool output."""
+        """Parse chip-tool output and set future results."""
         self.logger.info("Start parsing chip-tool output")
 
         while True:
@@ -371,26 +435,60 @@ class ChipToolManager:
                 if any(pattern in self._output_buffer for pattern in skip_patterns):
                     buf = self._output_buffer
                     self._output_buffer = ""
+
                     try:
                         cleaned_output = self.parser.delete_garbage_from_output(buf)
                         if cleaned_output:
                             blocks = self.parser.extract_named_blocks(cleaned_output)
+
                             for block in blocks:
                                 try:
                                     parsed_data = self.parser.parse_chip_data(block)
                                     if parsed_data:
-                                        parsed_json = json.dumps(parsed_data, indent=4)
-                                        await self._response_queue.put(parsed_json)
-                                        await self._parsed_queue.put(parsed_json)
-                                        self.database.update_attribute(parsed_json)
-                                        self.logger.info(f"Parsed data: {parsed_json}")
+                                        parsed_json_str = json.dumps(parsed_data, indent=4)
+                                        parsed_json = json.loads(parsed_json_str)
+
+                                        # Create response object
+                                        response = ChipToolResponse(
+                                            status="success",
+                                            command=self._current_command or 'unknown',
+                                            data=parsed_data,
+                                        )
+
+                                        # Set future result if there's a pending request
+                                        command_id = self._current_command_id
+                                        if command_id and command_id in self._pending_requests:
+                                            future = self._pending_requests[command_id]
+                                            if not future.done():
+                                                future.set_result(response)
+
+                                        # Continue existing processing
+                                        await self._response_queue.put(parsed_json_str)
+                                        await self._parsed_queue.put(parsed_json_str)
+
+                                        if self.database:
+                                            self.database.update_attribute(parsed_json_str)
+
+                                        self.logger.info(f"Parsed data: {parsed_json_str}")
+
                                 except Exception as parse_error:
                                     self.logger.warning(f"Error parsing block: {parse_error}")
+
+                                    # Set error response for future
+                                    command_id = self._current_command_id
+                                    if command_id and command_id in self._pending_requests:
+                                        error_response = ChipToolResponse(
+                                            status="error",
+                                            command=self._current_command or 'unknown',
+                                            error_message=f"Parse error: {parse_error}",
+                                        )
+                                        future = self._pending_requests[command_id]
+                                        if not future.done():
+                                            future.set_result(error_response)
                                     continue
+
                     except Exception as clean_error:
                         self.logger.warning(f"Error cleaning output: {clean_error}")
-
-                    buf = ""
 
             except asyncio.CancelledError:
                 break
@@ -424,33 +522,38 @@ class ChipToolManager:
             List of clusters
         """
         command = f"descriptor read server-list {node_id} {endpoint}"
-        await self.execute_command(command)
+        response = await self.execute_command(command)
 
-        while True:
-            json_str = await self._response_queue.get()
-            json_data = json.loads(json_str)
+        if response.status != "success":
+            self.logger.error(f"Failed to get cluster list: {response.error_message}")
+            return []
 
-            if ("ReportDataMessage" in json_str and
-                "AttributeReportIBs" in json_str):
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
 
-                report_data = json_data.get("ReportDataMessage", {})
-                attr_reports = report_data.get("AttributeReportIBs", [])
+        try:
+            # Navigate through the parsed data structure
+            report_data = data.get("ReportDataMessage", {})
+            attr_reports = report_data.get("AttributeReportIBs", [])
 
-                if attr_reports:
-                    attr_report = attr_reports[0].get("AttributeReportIB", {})
-                    attr_data = attr_report.get("AttributeDataIB", {})
-                    attr_path = attr_data.get("AttributePathIB", {})
+            if attr_reports:
+                attr_report = attr_reports[0].get("AttributeReportIB", {})
+                attr_data = attr_report.get("AttributeDataIB", {})
+                attr_path = attr_data.get("AttributePathIB", {})
 
-                    response_node_id = attr_path.get("NodeID")
-                    response_endpoint = attr_path.get("Endpoint")
-                    if response_node_id == node_id and response_endpoint == endpoint:
-                        clusters = []
-                        for cluster in attr_data.get("Data", []):
-                            clusters.append(int(cluster))
-                        return clusters
-                    continue
+                response_node_id = attr_path.get("NodeID")
+                response_endpoint = attr_path.get("Endpoint")
 
-            break
+                if response_node_id == node_id and response_endpoint == endpoint:
+                    clusters = []
+                    for cluster in attr_data.get("Data", []):
+                        clusters.append(int(cluster))
+                    return clusters
+
+        except Exception as e:
+            self.logger.error(f"Error extracting cluster data: {e}")
 
         return []
 
@@ -464,36 +567,43 @@ class ChipToolManager:
             cluster_name: Cluster name
 
         Returns:
-            Dictionary of attributes
+            List of attributes
         """
         cluster_name = ''.join(cluster_name.split()).replace('/', '').lower()
         command = f"{cluster_name} read attribute-list {node_id} {endpoint}"
-        await self.execute_command(command)
+        response = await self.execute_command(command)
 
-        while True:
-            json_str = await self._response_queue.get()
-            json_data = json.loads(json_str)
+        if response.status != "success":
+            self.logger.error(f"Failed to get attribute list: {response.error_message}")
+            return []
 
-            if ("ReportDataMessage" in json_str and
-                "AttributeReportIBs" in json_str):
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
 
-                report_data = json_data.get("ReportDataMessage", {})
-                attr_reports = report_data.get("AttributeReportIBs", [])
+        try:
+            # Navigate through the parsed data structure
+            report_data = data.get("ReportDataMessage", {})
+            attr_reports = report_data.get("AttributeReportIBs", [])
 
-                if attr_reports:
-                    attr_report = attr_reports[0].get("AttributeReportIB", {})
-                    attr_data = attr_report.get("AttributeDataIB", {})
-                    attr_path = attr_data.get("AttributePathIB", {})
+            if attr_reports:
+                attr_report = attr_reports[0].get("AttributeReportIB", {})
+                attr_data = attr_report.get("AttributeDataIB", {})
+                attr_path = attr_data.get("AttributePathIB", {})
 
-                    response_node_id = attr_path.get("NodeID")
-                    response_endpoint = attr_path.get("Endpoint")
-                    if response_node_id == node_id and response_endpoint == endpoint:
-                        attributes =[]
-                        for attribute in attr_data.get("Data", []):
-                            attributes.append(int(attribute))
-                        return attributes
-                    continue
-            break
+                response_node_id = attr_path.get("NodeID")
+                response_endpoint = attr_path.get("Endpoint")
+
+                if response_node_id == node_id and response_endpoint == endpoint:
+                    attributes = []
+                    for attribute in attr_data.get("Data", []):
+                        attributes.append(int(attribute))
+                    return attributes
+
+        except Exception as e:
+            self.logger.error(f"Error extracting attribute data: {e}")
+
         return []
 
 
@@ -509,27 +619,32 @@ class ChipToolManager:
             Attribute value or None
         """
         command = f"basicinformation read {attribute} {node_id} 0"
-        await self.execute_command(command)
+        response = await self.execute_command(command)
 
-        while True:
-            json_str = await self._response_queue.get()
-            json_data = json.loads(json_str)
+        if response.status != "success":
+            self.logger.error(f"Failed to get basic info: {response.error_message}")
+            return None
 
-            if ("ReportDataMessage" in json_str and
-                "AttributeReportIBs" in json_str):
+        # Extract data from response
+        data = response.data
+        if not data:
+            return None
 
-                report_data = json_data.get("ReportDataMessage", {})
-                attr_reports = report_data.get("AttributeReportIBs", [])
+        try:
+            # Navigate through the parsed data structure
+            report_data = data.get("ReportDataMessage", {})
+            attr_reports = report_data.get("AttributeReportIBs", [])
 
-                if attr_reports:
-                    attr_report = attr_reports[0].get("AttributeReportIB", {})
-                    attr_data = attr_report.get("AttributeDataIB", {})
-                    attr_path = attr_data.get("AttributePathIB", {})
+            if attr_reports:
+                attr_report = attr_reports[0].get("AttributeReportIB", {})
+                attr_data = attr_report.get("AttributeDataIB", {})
+                attr_path = attr_data.get("AttributePathIB", {})
 
-                    if attr_path.get("NodeID") == node_id:
-                        return str(attr_data.get("Data", ""))
-                    continue
-            break
+                if attr_path.get("NodeID") == node_id:
+                    return str(attr_data.get("Data", ""))
+
+        except Exception as e:
+            self.logger.error(f"Error extracting basic info data: {e}")
 
         return None
 
@@ -544,33 +659,37 @@ class ChipToolManager:
             List of endpoints
         """
         command = f"descriptor read parts-list {node_id} 0"
-        await self.execute_command(command)
+        response = await self.execute_command(command)
 
-        while True:
-            json_str = await self._response_queue.get()
-            json_data = json.loads(json_str)
+        if response.status != "success":
+            self.logger.error(f"Failed to get endpoint list: {response.error_message}")
+            return []
 
-            if ("ReportDataMessage" in json_str and
-                "AttributeReportIBs" in json_str):
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
 
-                report_data = json_data.get("ReportDataMessage", {})
-                attr_reports = report_data.get("AttributeReportIBs", [])
+        try:
+            # Navigate through the parsed data structure
+            report_data = data.get("ReportDataMessage", {})
+            attr_reports = report_data.get("AttributeReportIBs", [])
 
-                if attr_reports:
-                    attr_report = attr_reports[0].get("AttributeReportIB", {})
-                    attr_data = attr_report.get("AttributeDataIB", {})
-                    data = attr_data.get("Data", [])
-                    attr_path = attr_data.get("AttributePathIB", {})
+            if attr_reports:
+                attr_report = attr_reports[0].get("AttributeReportIB", {})
+                attr_data = attr_report.get("AttributeDataIB", {})
+                data_array = attr_data.get("Data", [])
+                attr_path = attr_data.get("AttributePathIB", {})
 
-                    if attr_path.get("NodeID") == node_id:
-                        return [int(endpoint) for endpoint in data]
-                continue
+                if attr_path.get("NodeID") == node_id:
+                    return [int(endpoint) for endpoint in data_array]
 
-            break
+        except Exception as e:
+            self.logger.error(f"Error extracting endpoint data: {e}")
 
         return []
 
-    async def get_device_types(self, node_id: int, endpoint: int) -> dict:
+    async def get_device_types(self, node_id: int, endpoint: int) -> list:
         """
         Get device types from endpoint.
 
@@ -579,30 +698,34 @@ class ChipToolManager:
             endpoint: Endpoint ID
 
         Returns:
-            Device types dictionary
+            List of device types
         """
         command = f"descriptor read device-type-list {node_id} {endpoint}"
-        await self.execute_command(command)
+        response = await self.execute_command(command)
 
-        while True:
-            json_str = await self._response_queue.get()
-            json_data = json.loads(json_str)
+        if response.status != "success":
+            self.logger.error(f"Failed to get device types: {response.error_message}")
+            return []
 
-            if ("ReportDataMessage" in json_str and
-                "AttributeReportIBs" in json_str):
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
 
-                report_data = json_data.get("ReportDataMessage", {})
-                attr_reports = report_data.get("AttributeReportIBs", [])
+        try:
+            # Navigate through the parsed data structure
+            report_data = data.get("ReportDataMessage", {})
+            attr_reports = report_data.get("AttributeReportIBs", [])
 
-                if attr_reports:
-                    attr_report = attr_reports[0].get("AttributeReportIB", {})
-                    attr_data = attr_report.get("AttributeDataIB", {})
-                    attr_path = attr_data.get("AttributePathIB", {})
+            if attr_reports:
+                attr_report = attr_reports[0].get("AttributeReportIB", {})
+                attr_data = attr_report.get("AttributeDataIB", {})
+                attr_path = attr_data.get("AttributePathIB", {})
 
-                    if attr_path.get("NodeID") == node_id:
-                        return attr_data.get("Data", {})
-                continue
+                if attr_path.get("NodeID") == node_id:
+                    return attr_data.get("Data", [])
 
-            break
+        except Exception as e:
+            self.logger.error(f"Error extracting device type data: {e}")
 
-        return {}
+        return []
