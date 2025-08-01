@@ -262,8 +262,8 @@ class ChipToolManager:
         self._parsed_queue = asyncio.Queue()
 
         # Improved command management
-        self._pending_commands: Dict[str, Dict[str, Any]] = {}  # コマンド情報を保存
-        self._command_sequence = 0  # シーケンス番号
+        self._pending_commands: Dict[str, Dict[str, Any]] = {}
+        self._command_sequence = 0
 
         # Backward compatibility (deprecated)
         self._pending_requests: Dict[str, asyncio.Future] = {}
@@ -340,13 +340,11 @@ class ChipToolManager:
         """
         self.logger.info(f"Executing command: {command}")
 
-        # ユニークなコマンドIDを生成
         self._command_sequence += 1
         command_id = f"cmd_{self._command_sequence}_{int(asyncio.get_event_loop().time() * 1000)}"
 
         future = asyncio.get_event_loop().create_future()
 
-        # コマンド情報を保存
         self._pending_commands[command_id] = {
             "command": command,
             "future": future,
@@ -355,10 +353,8 @@ class ChipToolManager:
         }
 
         try:
-            # Add command to queue
             await self._request_queue.put((command_id, command, future))
 
-            # Wait for result with timeout
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
 
@@ -401,18 +397,15 @@ class ChipToolManager:
                 command_id, command, future = await self._request_queue.get()
 
                 if self._process and self._process.stdin:
-                    # コマンドを逐次実行
                     command_line = f"{command}\n"
                     self._process.stdin.write(command_line.encode())
                     await self._process.stdin.drain()
 
-                    # Store command ID for response matching
                     self._current_command_id = command_id
                     self._current_command = command
 
                     self.logger.info(f"[COMMAND_SENT] ID: {command_id}, Command: {command}")
 
-                    # 短い遅延を追加して出力の分離を改善
                     await asyncio.sleep(0.1)
 
             except asyncio.CancelledError:
@@ -420,7 +413,6 @@ class ChipToolManager:
             except Exception as e:
                 self.logger.error(f"Error processing request: {e}")
 
-                # エラー時の処理
                 if command_id in self._pending_commands:
                     error_response = ChipToolResponse(
                         status="error",
@@ -495,7 +487,6 @@ class ChipToolManager:
                                                     future.set_result(response)
                                                     self.logger.warning(f"[FALLBACK] Assigned response to oldest command: {fallback_cmd_id}")
 
-                                        # 既存の処理も継続
                                         parsed_json_str = json.dumps(parsed_data, indent=4)
                                         parsed_json = json.loads(parsed_json_str)
                                         await self._response_queue.put(parsed_json_str)
@@ -556,7 +547,6 @@ class ChipToolManager:
         Returns:
             Matching command ID or None
         """
-        # データからNodeID、Endpoint、Clusterを抽出
         try:
             report_data = parsed_data.get("ReportDataMessage", {})
             attr_reports = report_data.get("AttributeReportIBs", [])
@@ -573,7 +563,6 @@ class ChipToolManager:
 
                 self.logger.debug(f"[MATCHING] Response data: NodeID={node_id}, Endpoint={endpoint}, Cluster={cluster}, Attribute={attribute}")
 
-                # 最も古い待機中のコマンドから順にマッチング
                 candidates = []
                 current_time = asyncio.get_event_loop().time()
 
@@ -581,9 +570,7 @@ class ChipToolManager:
                     if cmd_info["future"].done():
                         continue
 
-                    # タイムアウトチェック
                     if current_time - cmd_info["timestamp"] > cmd_info["timeout"]:
-                        # タイムアウトしたコマンドを処理
                         timeout_response = ChipToolResponse(
                             status="timeout",
                             command=cmd_info["command"],
@@ -593,13 +580,11 @@ class ChipToolManager:
                         self.logger.warning(f"[TIMEOUT] Command {cmd_id}: {cmd_info['command']}")
                         continue
 
-                    # コマンドと応答データのマッチング
                     command = cmd_info["command"]
                     if self._command_matches_data(command, node_id, endpoint, cluster, attribute):
                         candidates.append((cmd_info["timestamp"], cmd_id))
                         self.logger.debug(f"[MATCH_CANDIDATE] {cmd_id}: {command}")
 
-                # 最も古いコマンドを選択
                 if candidates:
                     candidates.sort(key=lambda x: x[0])
                     selected_cmd_id = candidates[0][1]
@@ -646,12 +631,10 @@ class ChipToolManager:
             True if command matches data
         """
         try:
-            # コマンドからパラメータを抽出
             parts = command.split()
             self.logger.debug(f"[COMMAND_MATCH] Checking command: {command}")
             self.logger.debug(f"[COMMAND_MATCH] Parts: {parts}")
 
-            # 基本的なマッチング：node_idとendpointをチェック
             if len(parts) >= 4:
                 cmd_node_id = int(parts[-2]) if parts[-2].isdigit() else None
                 cmd_endpoint = int(parts[-1]) if parts[-1].isdigit() else None
@@ -660,20 +643,16 @@ class ChipToolManager:
                 self.logger.debug(f"[COMMAND_MATCH] Response params: NodeID={node_id}, Endpoint={endpoint}")
 
                 if cmd_node_id == node_id and cmd_endpoint == endpoint:
-                    # クラスターマッチング（追加チェック）
                     cluster_name = parts[0].lower() if parts else ""
 
-                    # OnOffクラスター (cluster ID 6) の場合
                     if cluster_name == "onoff" and cluster == 6:
                         self.logger.debug(f"[COMMAND_MATCH] OnOff cluster match")
                         return True
 
-                    # LevelControlクラスター (cluster ID 8) の場合
                     elif cluster_name == "levelcontrol" and cluster == 8:
                         self.logger.debug(f"[COMMAND_MATCH] LevelControl cluster match")
                         return True
 
-                    # その他のクラスターも基本的にマッチとみなす
                     elif cmd_node_id == node_id and cmd_endpoint == endpoint:
                         self.logger.debug(f"[COMMAND_MATCH] Basic node/endpoint match")
                         return True
@@ -689,8 +668,7 @@ class ChipToolManager:
         """Monitor and handle command timeouts."""
         while True:
             try:
-                await asyncio.sleep(1.0)  # 1秒ごとにチェック
-
+                await asyncio.sleep(1.0)
                 current_time = asyncio.get_event_loop().time()
                 expired_commands = []
 
@@ -701,7 +679,6 @@ class ChipToolManager:
                     if current_time - cmd_info["timestamp"] > cmd_info["timeout"]:
                         expired_commands.append(cmd_id)
 
-                # タイムアウトしたコマンドを処理
                 for cmd_id in expired_commands:
                     if cmd_id in self._pending_commands:
                         cmd_info = self._pending_commands[cmd_id]
