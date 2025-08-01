@@ -237,7 +237,7 @@ class TreeToJsonTransformer(Transformer):
 class ChipToolManager:
     """Manager for chip-tool REPL process and command execution."""
 
-    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str, config=None, database: Optional[Any] = None):
+    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str, database: Optional[Any] = None, data_model: Optional[Any] = None):
         """
         Initialize ChipTool manager.
 
@@ -245,15 +245,15 @@ class ChipToolManager:
             chip_tool_path: Path to chip-tool executable
             commissioning_dir: Path to commissioning directory
             paa_cert_path: Path to PAA certificate directory
-            config: Configuration object
             database: Database reference
+            data_model: Data model reference
         """
         self.chip_tool_path = chip_tool_path
         self.commissioning_dir = commissioning_dir
         self.paa_cert_path = paa_cert_path
-        self.config = config
         self.logger = get_chip_logger()
         self.database = database
+        self.data_model = data_model
 
         self._process: Optional[asyncio.subprocess.Process] = None
         self._output_buffer = ""
@@ -456,6 +456,9 @@ class ChipToolManager:
                                 try:
                                     parsed_data = self.parser.parse_chip_data(block)
                                     if parsed_data:
+                                        # Extract structured data and format it
+                                        formatted_data = self._format_parsed_data(parsed_data)
+
                                         matching_command_id = self._find_matching_command(parsed_data, buf)
 
                                         if matching_command_id and matching_command_id in self._pending_commands:
@@ -464,14 +467,13 @@ class ChipToolManager:
                                             response = ChipToolResponse(
                                                 status="success",
                                                 command=command_info["command"],
-                                                data=parsed_data,
+                                                data=formatted_data,
                                             )
 
                                             future = command_info["future"]
                                             if not future.done():
                                                 future.set_result(response)
                                         else:
-                                            # フォールバック：最も古い待機中のコマンドに応答を割り当て
                                             fallback_cmd_id = self._get_oldest_pending_command()
                                             if fallback_cmd_id and fallback_cmd_id in self._pending_commands:
                                                 command_info = self._pending_commands[fallback_cmd_id]
@@ -479,7 +481,7 @@ class ChipToolManager:
                                                 response = ChipToolResponse(
                                                     status="success",
                                                     command=command_info["command"],
-                                                    data=parsed_data,
+                                                    data=formatted_data,
                                                 )
 
                                                 future = command_info["future"]
@@ -488,14 +490,13 @@ class ChipToolManager:
                                                     self.logger.warning(f"[FALLBACK] Assigned response to oldest command: {fallback_cmd_id}")
 
                                         parsed_json_str = json.dumps(parsed_data, indent=4)
-                                        parsed_json = json.loads(parsed_json_str)
                                         await self._response_queue.put(parsed_json_str)
                                         await self._parsed_queue.put(parsed_json_str)
 
                                         if self.database:
                                             self.database.update_attribute(parsed_json_str)
 
-                                        self.logger.info(f"Parsed data: {parsed_json_str}")
+                                        # self.logger.info(f"Parsed data: {parsed_json_str}")
 
                                 except Exception as parse_error:
                                     self.logger.warning(f"Error parsing block: {parse_error}")
@@ -614,6 +615,105 @@ class ChipToolManager:
                 oldest_cmd_id = cmd_id
 
         return oldest_cmd_id
+
+    def _format_parsed_data(self, parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format parsed data to the standard response format.
+
+        Args:
+            parsed_data: Raw parsed data from chip-tool
+
+        Returns:
+            Formatted data in standard format
+        """
+        try:
+            if "InvokeResponseMessage" in parsed_data:
+                invoke_response_data = parsed_data["InvokeResponseMessage"]
+                invoke_response_ibs = invoke_response_data.get("InvokeResponseIBs", [])
+
+                if invoke_response_ibs:
+                    invoke_response_ib = invoke_response_ibs[0].get("InvokeResponseIB", {})
+                    command_status_ib = invoke_response_ib.get("CommandStatusIB", {})
+                    command_path_ib = command_status_ib.get("CommandPathIB", {})
+                    status_ib = command_status_ib.get("StatusIB", {})
+
+                    node_id = command_path_ib.get("NodeID")
+                    endpoint = command_path_ib.get("EndpointId")
+                    cluster_id = command_path_ib.get("ClusterId")
+                    command_id = command_path_ib.get("CommandId")
+
+                    cluster_name = None
+                    command_name = None
+
+                    if self.data_model:
+                        try:
+                            cluster_name = self.data_model.get_cluster_name_by_id(f"0x{int(cluster_id):04x}")
+                            command_name = self.data_model.get_command_name_by_code(f"0x{int(cluster_id):04x}", f"0x{int(command_id):02x}")
+                        except Exception as e:
+                            self.logger.warning(f"Error getting cluster/command names: {e}")
+
+                    return {
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "cluster": cluster_name or f"Cluster_{cluster_id}",
+                        "command": command_name or f"Command_{command_id}",
+                    }
+
+            if "ReportDataMessage" in parsed_data:
+                report_data = parsed_data["ReportDataMessage"]
+                attr_reports = report_data.get("AttributeReportIBs", [])
+
+                if attr_reports:
+                    attr_report = attr_reports[0].get("AttributeReportIB", {})
+                    attr_data = attr_report.get("AttributeDataIB", {})
+                    attr_path = attr_data.get("AttributePathIB", {})
+
+                    node_id = attr_path.get("NodeID")
+                    endpoint = attr_path.get("Endpoint")
+                    cluster_id = attr_path.get("Cluster")
+                    attribute_id = attr_path.get("Attribute")
+                    value = attr_data.get("Data")
+
+                    cluster_name = None
+                    attribute_name = None
+
+                    if self.data_model:
+                        try:
+                            cluster_name = self.data_model.get_cluster_name_by_id(f"0x{int(cluster_id):04x}")
+                            attribute_name = self.data_model.get_attribute_name_by_code(f"0x{int(cluster_id):04x}", f"0x{int(attribute_id):04x}")
+                        except Exception as e:
+                            self.logger.warning(f"Error getting cluster/attribute names: {e}")
+
+                    return {
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "cluster": cluster_name or f"Cluster_{cluster_id}",
+                        "attribute": attribute_name or f"Attribute_{attribute_id}",
+                        "value": value
+                    }
+
+            # If not standard format, try to extract what we can
+            return self._extract_basic_info(parsed_data)
+
+        except Exception as e:
+            self.logger.warning(f"Error formatting parsed data: {e}")
+            # Return original data if formatting fails
+            return parsed_data
+
+    def _extract_basic_info(self, parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract basic information from non-standard parsed data.
+
+        Args:
+            parsed_data: Raw parsed data
+
+        Returns:
+            Basic extracted information
+        """
+        # This is a fallback for data that doesn't match the standard ReportDataMessage format
+        return {
+            "raw_data": parsed_data
+        }
 
     def _command_matches_data(self, command: str, node_id: int, endpoint: int,
                             cluster: int, attribute: int) -> bool:

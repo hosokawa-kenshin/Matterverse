@@ -452,3 +452,42 @@ class DataModelDictionary:
                 if attribute.get("name") == attribute_name:
                     return attribute.get("code")
         return None
+
+    def get_command_name_by_code(self, cluster_id: str, command_code: str) -> Optional[str]:
+        """
+        Get command name by cluster ID and command code.
+
+        Args:
+            cluster_id: Cluster ID (e.g., "0x0202")
+            command_code: Command code (e.g., "0x00")
+
+        Returns:
+            Command name or None if not found
+        """
+        try:
+            # Normalize IDs to lowercase for comparison
+            cluster_id = cluster_id.lower()
+            command_code = command_code.lower()
+
+            # Search through all clusters
+            for cluster in self._clusters:
+                if cluster.get("id", "").lower() == cluster_id:
+                    # Search through commands in this cluster
+                    commands = cluster.get("commands", [])
+                    for command in commands:
+                        print(f"Checking command: {command.get('code', '').lower()} against {command_code}")
+                        if command.get("code", "").lower() == command_code:
+                            return command.get("name")
+
+            for cluster in self.clusters:
+                if cluster.get("id", "").lower() == cluster_id:
+                    commands = cluster.get("commands", [])
+                    for command in commands:
+                        if command.get("code", "").lower() == command_code:
+                            return command.get("name")
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting command name: {e}")
+            return None

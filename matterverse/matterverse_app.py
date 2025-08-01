@@ -75,7 +75,8 @@ class MatterverseApplication:
                 self.config.chip_tool_path,
                 self.config.commissioning_dir,
                 self.config.paa_cert_dir_path,
-                self.database
+                self.database,
+                self.data_model
             )
 
             # Initialize WebSocket interface
