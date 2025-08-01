@@ -299,7 +299,7 @@ class DataModelDictionary:
         if device_id_elem is not None:
             device_info['id'] = device_id_elem.text.lower()
 
-        name_elem = device_type_elem.find('name')
+        name_elem = device_type_elem.find('typeName')
         if name_elem is not None:
             device_info['name'] = name_elem.text
 
