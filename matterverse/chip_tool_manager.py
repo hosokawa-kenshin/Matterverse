@@ -1,10 +1,12 @@
 """
 ChipTool manager for Matterverse application.
-Handles Matter CLI tool REPL process and command execution.
+Handles Matter CLI tool execution with process separation approach.
+Each command request runs in a separate chip-tool process for complete isolation.
 """
 import asyncio
 import json
 import re
+import time
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -234,17 +236,23 @@ class TreeToJsonTransformer(Transformer):
         return result
 
 
-class ChipToolManager:
-    """Manager for chip-tool REPL process and command execution."""
+class ProcessBasedChipToolManager:
+    """
+    Process-separation based ChipTool manager.
+    Each command runs in a separate chip-tool process for complete isolation.
+    """
 
-    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str, database: Optional[Any] = None, data_model: Optional[Any] = None):
+    def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str,
+                 max_concurrent_processes: int = 10, database: Optional[Any] = None,
+                 data_model: Optional[Any] = None):
         """
-        Initialize ChipTool manager.
+        Initialize ProcessBased ChipTool manager.
 
         Args:
             chip_tool_path: Path to chip-tool executable
             commissioning_dir: Path to commissioning directory
             paa_cert_path: Path to PAA certificate directory
+            max_concurrent_processes: Maximum number of concurrent processes
             database: Database reference
             data_model: Data model reference
         """
@@ -255,27 +263,393 @@ class ChipToolManager:
         self.database = database
         self.data_model = data_model
 
-        self._process: Optional[asyncio.subprocess.Process] = None
-        self._output_buffer = ""
-        self._request_queue = asyncio.Queue()
-        self._response_queue = asyncio.Queue()
-        self._parsed_queue = asyncio.Queue()
+        # Process management
+        self.max_concurrent = max_concurrent_processes
+        self.active_processes: Dict[str, asyncio.subprocess.Process] = {}
+        self.semaphore = asyncio.Semaphore(max_concurrent_processes)
+        self.process_sequence = 0
 
-        # Improved command management
-        self._pending_commands: Dict[str, Dict[str, Any]] = {}
-        self._command_sequence = 0
-
-        # Backward compatibility (deprecated)
-        self._pending_requests: Dict[str, asyncio.Future] = {}
-        self._command_timeouts: Dict[str, float] = {}
-        self._current_command_id: Optional[str] = None
-        self._current_command: Optional[str] = None
-
+        # Parser for output processing
         self.parser = ChipToolParser()
-        self._tasks = []
 
-        # Callbacks
-        self._on_parsed_data: Optional[Callable] = None
+    async def start(self):
+        """
+        Start manager (no persistent process needed in separation approach).
+        """
+        self.logger.info("ProcessBasedChipToolManager started - no persistent process required")
+
+    async def stop(self):
+        """
+        Stop manager and cleanup any remaining processes.
+        """
+        # Terminate any remaining active processes
+        for process_id, process in list(self.active_processes.items()):
+            try:
+                if process.returncode is None:  # Process still running
+                    process.terminate()
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+            except Exception as e:
+                self.logger.warning(f"Error stopping process {process_id}: {e}")
+            finally:
+                self.active_processes.pop(process_id, None)
+
+        self.logger.info("ProcessBasedChipToolManager stopped")
+
+    def set_parsed_data_callback(self, callback: Callable):
+        """Set callback for parsed data (compatibility)."""
+        # Note: In process separation approach, callback is called per command
+        self._on_parsed_data = callback
+
+    async def execute_command(self, command: str, timeout: float = 30.0) -> ChipToolResponse:
+        """
+        Execute command in a new chip-tool process.
+
+        Args:
+            command: Command to execute
+            timeout: Command timeout in seconds
+
+        Returns:
+            ChipToolResponse with parsed data
+        """
+        self.logger.info(f"Executing command in new process: {command}")
+
+        # Acquire semaphore to limit concurrent processes
+        async with self.semaphore:
+            return await self._execute_in_new_process(command, timeout)
+
+    async def _execute_in_new_process(self, command: str, timeout: float) -> ChipToolResponse:
+        """
+        Execute command in a new chip-tool process.
+
+        Args:
+            command: Command to execute
+            timeout: Process timeout in seconds
+
+        Returns:
+            ChipToolResponse with result
+        """
+        self.process_sequence += 1
+        process_id = f"proc_{self.process_sequence}_{int(time.time() * 1000000)}"
+
+        try:
+            # Parse command arguments
+            cmd_args = command.strip().split()
+
+            # Build chip-tool command with required arguments
+            chip_tool_cmd = [
+                self.chip_tool_path,
+                *cmd_args,
+                "--paa-trust-store-path", self.paa_cert_path,
+                "--storage-directory", self.commissioning_dir
+            ]
+
+            self.logger.debug(f"[{process_id}] Starting process: {' '.join(chip_tool_cmd)}")
+
+            # Start new chip-tool process
+            process = await asyncio.create_subprocess_exec(
+                *chip_tool_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Register active process
+            self.active_processes[process_id] = process
+
+            # Wait for process completion with timeout
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=timeout
+                )
+
+                self.logger.debug(f"[{process_id}] Process completed with return code: {process.returncode}")
+
+                # Parse output and generate response
+                response = await self._parse_process_output(stdout, stderr, command, process_id)
+                # Check for "Resource is busy" and retry if needed
+                if response.error_message and "Resource is busy" in response.error_message:
+                    self.logger.warning(f"[{process_id}] Resource busy detected")
+                    max_retries = 3
+                    retry_delay = 1.0
+
+                    for retry_count in range(max_retries):
+                        self.logger.warning(f"[{process_id}] Resource busy detected, retrying in {retry_delay}s (attempt {retry_count + 1}/{max_retries})")
+                        await asyncio.sleep(retry_delay)
+
+                        # Retry the command with a new process
+                        try:
+                            retry_process = await asyncio.create_subprocess_exec(
+                                *chip_tool_cmd,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE
+                            )
+
+                            retry_stdout, retry_stderr = await asyncio.wait_for(
+                                retry_process.communicate(), timeout=timeout
+                            )
+
+                            retry_response = await self._parse_process_output(retry_stdout, retry_stderr, command, f"{process_id}_retry_{retry_count + 1}")
+
+                            # If retry succeeded, use the retry response
+                            if not (retry_response.error_message and "Resource is busy" in retry_response.error_message):
+                                self.logger.info(f"[{process_id}] Retry succeeded after {retry_count + 1} attempts")
+                                response = retry_response
+                                break
+
+                            # Increase delay for next retry
+                            retry_delay *= 2
+
+                        except asyncio.TimeoutError:
+                            self.logger.error(f"[{process_id}] Retry timeout after {timeout} seconds")
+                            continue
+                        except Exception as retry_error:
+                            self.logger.error(f"[{process_id}] Retry failed: {retry_error}")
+                            continue
+                    else:
+                        self.logger.error(f"[{process_id}] All retries failed due to resource busy")
+                # Update database if available
+                if self.database and response.data:
+                    try:
+                        self.database.update_attribute(json.dumps(response.data))
+                    except Exception as e:
+                        self.logger.warning(f"Database update failed: {e}")
+
+                return response
+
+            except asyncio.TimeoutError:
+                self.logger.error(f"[{process_id}] Process timeout after {timeout} seconds")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+
+                return ChipToolResponse(
+                    status="timeout",
+                    command=command,
+                    error_message=f"Process timed out after {timeout} seconds"
+                )
+
+        except Exception as e:
+            self.logger.error(f"[{process_id}] Process execution failed: {e}")
+            return ChipToolResponse(
+                status="error",
+                command=command,
+                error_message=str(e)
+            )
+
+        finally:
+            # Cleanup process from active list
+            self.active_processes.pop(process_id, None)
+
+    async def _parse_process_output(self, stdout: bytes, stderr: bytes,
+                                  command: str, process_id: str) -> ChipToolResponse:
+        """
+        Parse chip-tool process output and generate response.
+
+        Args:
+            stdout: Standard output from process
+            stderr: Standard error from process
+            command: Original command
+            process_id: Process identifier
+
+        Returns:
+            ChipToolResponse with parsed data
+        """
+        try:
+            # Decode output
+            stdout_str = stdout.decode('utf-8', errors='replace')
+            stderr_str = stderr.decode('utf-8', errors='replace')
+
+            self.logger.debug(f"[{process_id}] Raw stdout: {stdout_str[:500]}...")
+            if stderr_str:
+                self.logger.debug(f"[{process_id}] Raw stderr: {stderr_str[:500]}...")
+
+            # Check for obvious errors in stderr
+            if stderr_str and any(error in stderr_str.lower() for error in
+                                ['error', 'failed', 'exception', 'segmentation fault']):
+                return ChipToolResponse(
+                    status="error",
+                    command=command,
+                    error_message=stderr_str.strip()
+                )
+
+            # Process stdout with parser
+            if stdout_str:
+                cleaned_output = self.parser.delete_garbage_from_output(stdout_str)
+                if cleaned_output:
+                    blocks = self.parser.extract_named_blocks(cleaned_output)
+
+                    for block in blocks:
+                        try:
+                            parsed_data = self.parser.parse_chip_data(block)
+                            if parsed_data:
+                                # Format parsed data for response
+                                formatted_data = self._format_parsed_data(parsed_data)
+
+                                self.logger.info(f"[{process_id}] Successfully parsed data: {json.dumps(parsed_data, indent=2)}")
+
+                                return ChipToolResponse(
+                                    status="success",
+                                    command=command,
+                                    data=formatted_data
+                                )
+
+                        except Exception as parse_error:
+                            self.logger.warning(f"[{process_id}] Parse error for block: {parse_error}")
+                            continue
+
+            # If no parseable data found, return raw output
+            return ChipToolResponse(
+                status="success",
+                command=command,
+                data={
+                    "raw_output": stdout_str.strip(),
+                    "note": "No structured data found, returning raw output"
+                }
+            )
+
+        except Exception as e:
+            self.logger.error(f"[{process_id}] Output parsing failed: {e}")
+            return ChipToolResponse(
+                status="error",
+                command=command,
+                error_message=f"Output parsing failed: {str(e)}"
+            )
+
+    def _format_parsed_data(self, parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format parsed data to the standard response format.
+
+        Args:
+            parsed_data: Raw parsed data from chip-tool
+
+        Returns:
+            Formatted data in standard format
+        """
+        try:
+            if "InvokeResponseMessage" in parsed_data:
+                invoke_response_data = parsed_data["InvokeResponseMessage"]
+                invoke_response_ibs = invoke_response_data.get("InvokeResponseIBs", [])
+
+                if invoke_response_ibs:
+                    invoke_response_ib = invoke_response_ibs[0].get("InvokeResponseIB", {})
+                    command_status_ib = invoke_response_ib.get("CommandStatusIB", {})
+                    command_path_ib = command_status_ib.get("CommandPathIB", {})
+                    status_ib = command_status_ib.get("StatusIB", {})
+
+                    node_id = command_path_ib.get("NodeID")
+                    endpoint = command_path_ib.get("EndpointId")
+                    cluster_id = command_path_ib.get("ClusterId")
+                    command_id = command_path_ib.get("CommandId")
+
+                    cluster_name = None
+                    command_name = None
+
+                    if self.data_model:
+                        try:
+                            cluster_name = self.data_model.get_cluster_name_by_id(f"0x{int(cluster_id):04x}")
+                            command_name = self.data_model.get_command_name_by_code(f"0x{int(cluster_id):04x}", f"0x{int(command_id):02x}")
+                        except Exception as e:
+                            self.logger.warning(f"Error getting cluster/command names: {e}")
+
+                    return {
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "cluster": cluster_name or f"Cluster_{cluster_id}",
+                        "command": command_name or f"Command_{command_id}",
+                    }
+
+            if "ReportDataMessage" in parsed_data:
+                report_data = parsed_data["ReportDataMessage"]
+                attr_reports = report_data.get("AttributeReportIBs", [])
+
+                if attr_reports:
+                    attr_report = attr_reports[0].get("AttributeReportIB", {})
+                    attr_data = attr_report.get("AttributeDataIB", {})
+                    attr_path = attr_data.get("AttributePathIB", {})
+
+                    node_id = attr_path.get("NodeID")
+                    endpoint = attr_path.get("Endpoint")
+                    cluster_id = attr_path.get("Cluster")
+                    attribute_id = attr_path.get("Attribute")
+                    value = attr_data.get("Data")
+
+                    cluster_name = None
+                    attribute_name = None
+
+                    if self.data_model:
+                        try:
+                            cluster_name = self.data_model.get_cluster_name_by_id(f"0x{int(cluster_id):04x}")
+                            attribute_name = self.data_model.get_attribute_name_by_code(f"0x{int(cluster_id):04x}", f"0x{int(attribute_id):04x}")
+                        except Exception as e:
+                            self.logger.warning(f"Error getting cluster/attribute names: {e}")
+
+                    return {
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "cluster": cluster_name or f"Cluster_{cluster_id}",
+                        "attribute": attribute_name or f"Attribute_{attribute_id}",
+                        "value": value
+                    }
+
+            # If not standard format, try to extract what we can
+            return self._extract_basic_info(parsed_data)
+
+        except Exception as e:
+            self.logger.warning(f"Error formatting parsed data: {e}")
+            # Return original data if formatting fails
+            return parsed_data
+
+    def _extract_basic_info(self, parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract basic information from non-standard parsed data.
+
+        Args:
+            parsed_data: Raw parsed data
+
+        Returns:
+            Basic extracted information
+        """
+        # This is a fallback for data that doesn't match the standard ReportDataMessage format
+        return {
+            "raw_data": parsed_data
+        }
+
+    # Utility methods for common operations
+    async def get_cluster_list(self, node_id: str) -> ChipToolResponse:
+        """Get list of clusters for a node."""
+        command = f"any read-by-id 0x001D 0 {node_id}"
+        return await self.execute_command(command)
+
+    async def get_attribute_list(self, node_id: str, endpoint: str, cluster: str) -> ChipToolResponse:
+        """Get list of attributes for a cluster."""
+        command = f"any read-by-id {cluster} {endpoint} {node_id}"
+        return await self.execute_command(command)
+
+    async def read_attribute(self, node_id: str, endpoint: str, cluster: str, attribute: str) -> ChipToolResponse:
+        """Read specific attribute."""
+        command = f"any read-by-id {cluster} {attribute} {endpoint} {node_id}"
+        return await self.execute_command(command)
+
+    async def write_attribute(self, node_id: str, endpoint: str, cluster: str, attribute: str, value: Any) -> ChipToolResponse:
+        """Write specific attribute."""
+        command = f"any write-by-id {cluster} {attribute} {endpoint} {node_id} {value}"
+        return await self.execute_command(command)
+
+    async def invoke_command(self, node_id: str, endpoint: str, cluster: str, command_id: str, *args) -> ChipToolResponse:
+        """Invoke specific command."""
+        command = f"any command-by-id {cluster} {command_id} {endpoint} {node_id}"
+        if args:
+            command += " " + " ".join(str(arg) for arg in args)
+        return await self.execute_command(command)
+
+
+# Legacy REPL-based class (deprecated - keeping for compatibility)
+class ChipToolManager:
 
     async def start(self):
         """Start chip-tool REPL process and background tasks."""
@@ -496,7 +870,7 @@ class ChipToolManager:
                                         if self.database:
                                             self.database.update_attribute(parsed_json_str)
 
-                                        # self.logger.info(f"Parsed data: {parsed_json_str}")
+                                        self.logger.info(f"Parsed data: {parsed_json_str}")
 
                                 except Exception as parse_error:
                                     self.logger.warning(f"Error parsing block: {parse_error}")

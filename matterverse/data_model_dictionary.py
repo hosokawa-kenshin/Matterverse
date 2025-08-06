@@ -475,7 +475,6 @@ class DataModelDictionary:
                     # Search through commands in this cluster
                     commands = cluster.get("commands", [])
                     for command in commands:
-                        print(f"Checking command: {command.get('code', '').lower()} against {command_code}")
                         if command.get("code", "").lower() == command_code:
                             return command.get("name")
 

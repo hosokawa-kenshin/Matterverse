@@ -12,7 +12,7 @@ from config import Config
 from logger import Logger, get_chip_logger
 from database_manager import Database
 from data_model_dictionary import DataModelDictionary
-from chip_tool_manager import ChipToolManager
+from chip_tool_manager import ProcessBasedChipToolManager
 from mqtt_interface import MQTTInterface
 from websocket_interface import WebSocketInterface
 from subscription_manager import SubscriptionManager
@@ -71,10 +71,11 @@ class MatterverseApplication:
             self.database = Database(self.config.database_path, self.data_model)
 
             # Initialize chip tool manager
-            self.chip_tool = ChipToolManager(
+            self.chip_tool = ProcessBasedChipToolManager(
                 self.config.chip_tool_path,
                 self.config.commissioning_dir,
                 self.config.paa_cert_dir_path,
+                10,  # max_concurrent_processes
                 self.database,
                 self.data_model
             )
@@ -223,11 +224,11 @@ class MatterverseApplication:
             # Publish Homie devices
             self.mqtt.publish_homie_devices()
 
-            # Start subscriptions
-            subscription_task = asyncio.create_task(
-                self.subscription_manager.subscribe_all_devices()
-            )
-            self._background_tasks.append(subscription_task)
+            # Start subscriptions (temporarily disabled)
+            # subscription_task = asyncio.create_task(
+            #     self.subscription_manager.subscribe_all_devices()
+            # )
+            # self._background_tasks.append(subscription_task)
 
             # Setup signal handlers
             self._setup_signal_handlers()
