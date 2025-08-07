@@ -156,7 +156,7 @@ class DataModelDictionary:
         for attr in cluster_elem.findall("attribute"):
             cluster["attributes"].append({
                 "code": attr.get("code", "").lower(),
-                "name": self._convert_to_camel_case(attr.get("define")) if attr.get("define") else None,
+                "name": attr.text if attr.text else None,
                 "type": attr.get("type"),
                 "define": attr.get("define"),
                 "writable": attr.get("writable", "false"),

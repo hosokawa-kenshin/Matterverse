@@ -57,6 +57,7 @@ class APIInterface:
             device_manager: Device manager instance
             websocket_interface: WebSocket interface instance
             chip_tool_manager: ChipTool manager instance
+            data_model: Data model dictionary instance
         """
         self.device_manager = device_manager
         self.websocket = websocket_interface
@@ -67,6 +68,15 @@ class APIInterface:
         self.app = FastAPI(title="Matterverse API", version="1.0.0")
         self._setup_middleware()
         self._setup_routes()
+
+    def set_device_commissioned_callback(self, callback):
+        """
+        Set callback function to be called when a device is commissioned.
+
+        Args:
+            callback: Async function to call after successful device commissioning
+        """
+        self._device_commissioned_callback = callback
 
     def _setup_middleware(self):
         """Setup FastAPI middleware."""
@@ -222,6 +232,14 @@ class APIInterface:
             try:
                 success = await self.device_manager.register_new_device()
                 if success:
+                    # デバイスコミッショニング成功後のコールバック実行
+                    if hasattr(self, '_device_commissioned_callback'):
+                        try:
+                            await self._device_commissioned_callback()
+                        except Exception as callback_error:
+                            self.logger.error(f"Error in device commissioned callback: {callback_error}")
+                            # コールバックエラーでもコミッショニング成功は返す
+
                     return {"status": "success", "message": "Device commissioned successfully"}
                 else:
                     raise HTTPException(status_code=400, detail="Device commissioning failed")

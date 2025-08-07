@@ -70,3 +70,42 @@ class Config:
     def enable_colored_logs(self) -> bool:
         """Get whether to enable colored logs."""
         return os.getenv('ENABLE_COLORED_LOGS', 'true').lower() == 'true'
+
+    # Polling configuration
+    @property
+    def polling_interval(self) -> int:
+        """Get polling interval in seconds."""
+        return int(os.getenv('POLLING_INTERVAL', '30'))
+
+    @property
+    def max_concurrent_devices(self) -> int:
+        """Get maximum concurrent devices for polling."""
+        return int(os.getenv('MAX_CONCURRENT_DEVICES', '5'))
+
+    @property
+    def command_timeout(self) -> int:
+        """Get command timeout in seconds."""
+        return int(os.getenv('COMMAND_TIMEOUT', '30'))
+
+    @property
+    def device_error_stop(self) -> bool:
+        """Get whether to stop device polling on error."""
+        return os.getenv('DEVICE_ERROR_STOP', 'true').lower() == 'true'
+
+    @property
+    def auto_discovery_interval(self) -> int:
+        """Get auto-discovery interval in seconds (0 to disable)."""
+        return int(os.getenv('AUTO_DISCOVERY_INTERVAL', '300'))
+
+    def get(self, key: str, default=None):
+        """Get configuration value by key with fallback to property."""
+        # Map common keys to properties
+        property_map = {
+            'polling_interval': self.polling_interval,
+            'max_concurrent_devices': self.max_concurrent_devices,
+            'command_timeout': self.command_timeout,
+            'device_error_stop': self.device_error_stop,
+            'auto_discovery_interval': self.auto_discovery_interval
+        }
+
+        return property_map.get(key, default)

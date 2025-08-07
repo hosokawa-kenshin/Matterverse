@@ -272,6 +272,9 @@ class ProcessBasedChipToolManager:
         # Parser for output processing
         self.parser = ChipToolParser()
 
+        # Callback for parsed data
+        self._parsed_data_callback = None
+
     async def start(self):
         """
         Start manager (no persistent process needed in separation approach).
@@ -299,9 +302,13 @@ class ProcessBasedChipToolManager:
         self.logger.info("ProcessBasedChipToolManager stopped")
 
     def set_parsed_data_callback(self, callback: Callable):
-        """Set callback for parsed data (compatibility)."""
-        # Note: In process separation approach, callback is called per command
-        self._on_parsed_data = callback
+        """
+        Set callback for parsed data.
+
+        Args:
+            callback: Async function to call when command result is parsed
+        """
+        self._parsed_data_callback = callback
 
     async def execute_command(self, command: str, timeout: float = 30.0) -> ChipToolResponse:
         """
@@ -414,13 +421,6 @@ class ProcessBasedChipToolManager:
                             continue
                     else:
                         self.logger.error(f"[{process_id}] All retries failed due to resource busy")
-                # Update database if available
-                if self.database and response.data:
-                    try:
-                        self.database.update_attribute(json.dumps(response.data))
-                    except Exception as e:
-                        self.logger.warning(f"Database update failed: {e}")
-
                 return response
 
             except asyncio.TimeoutError:
@@ -494,6 +494,16 @@ class ProcessBasedChipToolManager:
                             if parsed_data:
                                 # Format parsed data for response
                                 formatted_data = self._format_parsed_data(parsed_data)
+
+                                # Call parsed data callback if set
+                                if self._parsed_data_callback:
+                                    try:
+                                        if asyncio.iscoroutinefunction(self._parsed_data_callback):
+                                            await self._parsed_data_callback(json.dumps(formatted_data))
+                                        else:
+                                            self._parsed_data_callback(json.dumps(formatted_data))
+                                    except Exception as callback_error:
+                                        self.logger.error(f"[{process_id}] Error in parsed data callback: {callback_error}")
 
                                 self.logger.info(f"[{process_id}] Successfully parsed data: {json.dumps(parsed_data, indent=2)}")
 
@@ -700,6 +710,7 @@ class ProcessBasedChipToolManager:
 
         # Extract data from response
         data = response.data
+        print(f"Response data: {data}")
         if not data:
             return []
 

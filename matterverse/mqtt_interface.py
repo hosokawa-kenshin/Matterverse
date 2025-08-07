@@ -279,18 +279,19 @@ class MQTTInterface:
             return False
 
         try:
+
+            print(f"Received attribute data: {json_str}")
             json_data = json.loads(json_str)
+            node_id = json_data.get("node")
+            endpoint_id = json_data.get("endpoint")
+            cluster_name = json_data.get("cluster")
+            cluster_name = cluster_name.lower().replace("/", "").replace(" ", "")
+            value = str(json_data.get("value"))
+
+            attribute_name = json_data.get("attribute")
+
             sql_max_number = 9223372036854775807
             sql_min_number = -9223372036854775808
-
-            # Extract data from JSON
-            report_data = json_data.get("ReportDataMessage", {})
-            attribute_report = report_data.get("AttributeReportIBs", [{}])[0].get("AttributeReportIB", {})
-            attribute_data = attribute_report.get("AttributeDataIB", {})
-            attribute_path = attribute_data.get("AttributePathIB", {})
-
-            node_id = attribute_path.get("NodeID")
-            endpoint_id = attribute_path.get("Endpoint")
 
             # Validate node ID
             if node_id and (node_id > sql_max_number or node_id < sql_min_number):
@@ -305,32 +306,10 @@ class MQTTInterface:
                 self.logger.error("Device not found in database")
                 return False
 
-            device_type = device.get("DeviceType")
-            device_type = f"0x{int(device_type):04x}"
-
-            clusters = self._data_model.get_clusters_by_device_type(device_type)
-            cluster_code = attribute_path.get("Cluster")
-            cluster_code = f"0x{int(cluster_code):04x}"
-            attribute_code = attribute_path.get("Attribute")
-            payload = attribute_data.get("Data")
-
-            if not isinstance(payload, str):
-                payload = str(payload)
-
-            cluster_name = self._data_model.get_cluster_name_by_id(cluster_code)
-
-            if cluster_name not in clusters:
-                self.logger.error("Cluster not found in device's clusters, skipping MQTT publish")
-                return False
-
-            attribute_code = f"0x{int(attribute_code):04x}"
-            cluster_name = cluster_name.lower().replace("/", "").replace(" ", "")
-            attribute_name = self._data_model.get_attribute_name_by_code(cluster_code, attribute_code)
-
             topic_id = device.get("TopicID")
             topic = f"homie/{topic_id}/{cluster_name}/{attribute_name}"
 
-            result = self.client.publish(topic, payload, retain=True)
+            result = self.client.publish(topic, value, retain=True)
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 self.logger.info("MQTT publish successful")

@@ -16,6 +16,7 @@ from chip_tool_manager import ProcessBasedChipToolManager
 from mqtt_interface import MQTTInterface
 from websocket_interface import WebSocketInterface
 from subscription_manager import SubscriptionManager
+from polling_subscription_manager import PollingSubscriptionManager, PollingConfig
 from device_manager import DeviceManager
 from api_interface import APIInterface
 
@@ -47,6 +48,7 @@ class MatterverseApplication:
         self.mqtt = None
         self.websocket = None
         self.subscription_manager = None
+        self.polling_manager = None
         self.device_manager = None
         self.api = None
 
@@ -91,11 +93,26 @@ class MatterverseApplication:
             self.mqtt.set_data_model(self.data_model)
             self.mqtt.set_database(self.database)
 
-            # Initialize subscription manager
+            # Initialize subscription manager (legacy)
             self.subscription_manager = SubscriptionManager(
                 self.chip_tool,
                 self.data_model,
                 self.database
+            )
+
+            # Initialize polling subscription manager (new)
+            polling_config = PollingConfig(
+                polling_interval=self.config.get('polling_interval', 30),
+                max_concurrent_devices=self.config.get('max_concurrent_devices', 5),
+                command_timeout=self.config.get('command_timeout', 30),
+                device_error_stop=self.config.get('device_error_stop', True),
+                auto_discovery_interval=self.config.get('auto_discovery_interval', 300)
+            )
+            self.polling_manager = PollingSubscriptionManager(
+                self.chip_tool,
+                self.data_model,
+                self.database,
+                polling_config
             )
 
             # Initialize device manager
@@ -143,47 +160,78 @@ class MatterverseApplication:
 
     def _setup_callbacks(self):
         """Setup callbacks between components."""
-        # Set chip tool parsed data callback
-        self.chip_tool.set_parsed_data_callback(self._handle_parsed_data)
+        # Set chip tool parsed data callback (for direct command results)
+        self.chip_tool.set_parsed_data_callback(self._handle_direct_command_result)
 
         # Set MQTT command callback
         self.mqtt.set_command_callback(self.chip_tool.execute_command)
 
-        # Set subscription callback
+        # Set subscription callback (legacy)
         self.subscription_manager.set_subscription_callback(self._handle_subscription_data)
 
-    async def _handle_parsed_data(self, parsed_json: str):
+        # Set polling notification callback (new)
+        self.polling_manager.set_notification_callback(self._handle_polling_notification)
+
+        # Set API device commissioned callback
+        self.api.set_device_commissioned_callback(self._handle_device_commissioned)
+
+    async def _handle_direct_command_result(self, json_data: str):
         """
-        Handle parsed data from chip tool.
+        Handle direct command result from chip tool.
+        Called when a command is executed directly via API or MQTT.
 
         Args:
-            parsed_json: Parsed JSON data
+            json_data: Command result data in JSON format
         """
         try:
-            # Check data type and route accordingly
-            if "ReportDataMessage" in parsed_json and "AttributeReportIBs" in parsed_json:
-                # Attribute report - publish to MQTT
-                self.mqtt.publish_attribute_data(parsed_json)
+            # Forward to MQTT for other Matterverse instances
+            self.mqtt.publish_attribute_data(json_data)
 
-            elif "InvokeResponseMessage" in parsed_json:
-                # Command response - broadcast to WebSocket
-                await self.websocket.send_parsed_data(parsed_json)
-
-            # Always broadcast to WebSocket clients
-            await self.websocket.send_parsed_data(parsed_json)
+            # Broadcast to WebSocket clients for real-time updates
+            await self.websocket.send_parsed_data(json_data)
 
         except Exception as e:
-            self.logger.error(f"Error handling parsed data: {e}")
+            self.logger.error(f"Error handling direct command result: {e}")
 
     async def _handle_subscription_data(self, json_data: str):
         """
-        Handle subscription data.
+        Handle subscription data (legacy).
 
         Args:
             json_data: Subscription data
         """
         # Forward to MQTT
         self.mqtt.publish_attribute_data(json_data)
+
+    async def _handle_polling_notification(self, json_data: str):
+        """
+        Handle polling notification data (new).
+
+        Args:
+            json_data: Polling notification data
+        """
+        try:
+            # Forward to MQTT
+            self.mqtt.publish_attribute_data(json_data)
+
+            # Broadcast to WebSocket clients
+            await self.websocket.send_parsed_data(json_data)
+
+        except Exception as e:
+            self.logger.error(f"Error handling polling notification: {e}")
+
+    async def _handle_device_commissioned(self):
+        """
+        Handle device commissioned event.
+        Called when a device is successfully commissioned via API.
+        """
+        try:
+            if self.polling_manager:
+                # 新しいデバイスを検出してポーリングに追加
+                added_count = await self.polling_manager.rescan_and_add_new_devices()
+                self.logger.info(f"Added {added_count} new devices to polling after commissioning")
+        except Exception as e:
+            self.logger.error(f"Error handling device commissioned event: {e}")
 
     def _create_app(self) -> FastAPI:
         """Create FastAPI application with lifespan management."""
@@ -230,6 +278,12 @@ class MatterverseApplication:
             # )
             # self._background_tasks.append(subscription_task)
 
+            # Start polling subscriptions (new approach)
+            polling_task = asyncio.create_task(
+                self.polling_manager.start_polling_all_devices()
+            )
+            self._background_tasks.append(polling_task)
+
             # Setup signal handlers
             self._setup_signal_handlers()
 
@@ -253,12 +307,19 @@ class MatterverseApplication:
             # Set shutdown event
             self._shutdown_event.set()
 
-            # Stop subscriptions
+            # Stop subscriptions (legacy)
             if self.subscription_manager:
                 try:
                     await self.subscription_manager.stop_all_subscriptions()
                 except Exception as e:
                     self.logger.error(f"Error stopping subscriptions: {e}")
+
+            # Stop polling (new)
+            if self.polling_manager:
+                try:
+                    await self.polling_manager.stop_polling()
+                except Exception as e:
+                    self.logger.error(f"Error stopping polling: {e}")
 
             # Cancel background tasks
             try:
