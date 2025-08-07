@@ -345,9 +345,7 @@ class ProcessBasedChipToolManager:
                 "--paa-trust-store-path", self.paa_cert_path,
                 "--storage-directory", self.commissioning_dir
             ]
-
             self.logger.debug(f"[{process_id}] Starting process: {' '.join(chip_tool_cmd)}")
-
             # Start new chip-tool process
             process = await asyncio.create_subprocess_exec(
                 *chip_tool_cmd,
@@ -369,7 +367,11 @@ class ProcessBasedChipToolManager:
                 # Parse output and generate response
                 response = await self._parse_process_output(stdout, stderr, command, process_id)
                 # Check for "Resource is busy" and retry if needed
-                if response.error_message and "Resource is busy" in response.error_message:
+
+                if (response.data and
+                    isinstance(response.data, dict) and
+                    response.data.get('raw_output') and
+                    "Resource is busy" in response.data.get('raw_output', '')):
                     self.logger.warning(f"[{process_id}] Resource busy detected")
                     max_retries = 3
                     retry_delay = 1.0
@@ -393,7 +395,10 @@ class ProcessBasedChipToolManager:
                             retry_response = await self._parse_process_output(retry_stdout, retry_stderr, command, f"{process_id}_retry_{retry_count + 1}")
 
                             # If retry succeeded, use the retry response
-                            if not (retry_response.error_message and "Resource is busy" in retry_response.error_message):
+                            if not (retry_response.data and
+                                   isinstance(retry_response.data, dict) and
+                                   retry_response.data.get('raw_output') and
+                                   "Resource is busy" in retry_response.data.get('raw_output', '')):
                                 self.logger.info(f"[{process_id}] Retry succeeded after {retry_count + 1} attempts")
                                 response = retry_response
                                 break
