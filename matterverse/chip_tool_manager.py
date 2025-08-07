@@ -625,16 +625,6 @@ class ProcessBasedChipToolManager:
         }
 
     # Utility methods for common operations
-    async def get_cluster_list(self, node_id: str) -> ChipToolResponse:
-        """Get list of clusters for a node."""
-        command = f"any read-by-id 0x001D 0 {node_id}"
-        return await self.execute_command(command)
-
-    async def get_attribute_list(self, node_id: str, endpoint: str, cluster: str) -> ChipToolResponse:
-        """Get list of attributes for a cluster."""
-        command = f"any read-by-id {cluster} {endpoint} {node_id}"
-        return await self.execute_command(command)
-
     async def read_attribute(self, node_id: str, endpoint: str, cluster: str, attribute: str) -> ChipToolResponse:
         """Read specific attribute."""
         command = f"any read-by-id {cluster} {attribute} {endpoint} {node_id}"
@@ -651,6 +641,172 @@ class ProcessBasedChipToolManager:
         if args:
             command += " " + " ".join(str(arg) for arg in args)
         return await self.execute_command(command)
+
+    # Advanced utility methods with detailed data extraction
+    async def get_cluster_list(self, node_id: int, endpoint: int) -> list:
+        """
+        Get cluster list for a specific endpoint with detailed extraction.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+
+        Returns:
+            List of clusters
+        """
+        command = f"descriptor read server-list {node_id} {endpoint}"
+        response = await self.execute_command(command)
+
+        if response.status != "success":
+            self.logger.error(f"Failed to get cluster list: {response.error_message}")
+            return []
+
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
+
+        try:
+            if data.get("value"):
+                clusters = []
+                for cluster in data.get("value", []):
+                    clusters.append(int(cluster))
+                return clusters
+
+        except Exception as e:
+            self.logger.error(f"Error extracting cluster data: {e}")
+
+        return []
+
+    async def get_attribute_list(self, node_id: int, endpoint: int, cluster_name: str) -> list:
+        """
+        Get attribute list for a specific cluster with detailed extraction.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            cluster_name: Cluster name
+
+        Returns:
+            List of attributes
+        """
+        cluster_name = ''.join(cluster_name.split()).replace('/', '').lower()
+        command = f"{cluster_name} read attribute-list {node_id} {endpoint}"
+        response = await self.execute_command(command)
+
+        if response.status != "success":
+            self.logger.error(f"Failed to get attribute list: {response.error_message}")
+            return []
+
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
+
+        try:
+            # Navigate through the parsed data structure
+            if data.get("value"):
+                attributes = []
+                for attribute in data.get("value", []):
+                    attributes.append(int(attribute))
+                return attributes
+
+        except Exception as e:
+            self.logger.error(f"Error extracting attribute data: {e}")
+
+        return []
+
+    async def get_basic_info(self, node_id: int, attribute: str) -> Optional[str]:
+        """
+        Get basic information attribute from device.
+
+        Args:
+            node_id: Node ID
+            attribute: Attribute name
+
+        Returns:
+            Attribute value or None
+        """
+        command = f"basicinformation read {attribute} {node_id} 0"
+        response = await self.execute_command(command)
+
+        if response.status != "success":
+            self.logger.error(f"Failed to get basic info: {response.error_message}")
+            return None
+
+        # Extract data from response
+        data = response.data
+        if not data:
+            return None
+
+        try:
+            return str(data.get("value", ""))
+
+        except Exception as e:
+            self.logger.error(f"Error extracting basic info data: {e}")
+
+        return None
+
+    async def get_endpoint_list(self, node_id: int) -> list:
+        """
+        Get endpoint list from device.
+
+        Args:
+            node_id: Node ID
+
+        Returns:
+            List of endpoints
+        """
+        command = f"descriptor read parts-list {node_id} 0"
+        response = await self.execute_command(command)
+
+        if response.status != "success":
+            self.logger.error(f"Failed to get endpoint list: {response.error_message}")
+            return []
+
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
+
+        try:
+            return [int(endpoint) for endpoint in data.get("value", [])]
+
+        except Exception as e:
+            self.logger.error(f"Error extracting endpoint data: {e}")
+
+        return []
+
+    async def get_device_types(self, node_id: int, endpoint: int) -> list:
+        """
+        Get device types from endpoint.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+
+        Returns:
+            List of device types
+        """
+        command = f"descriptor read device-type-list {node_id} {endpoint}"
+        response = await self.execute_command(command)
+
+        if response.status != "success":
+            self.logger.error(f"Failed to get device types: {response.error_message}")
+            return []
+
+        # Extract data from response
+        data = response.data
+        if not data:
+            return []
+
+        try:
+            return data.get("value", [])
+
+        except Exception as e:
+            self.logger.error(f"Error extracting device type data: {e}")
+
+        return []
 
 
 # Legacy REPL-based class (deprecated - keeping for compatibility)
@@ -1290,12 +1446,15 @@ class ChipToolManager:
         command = f"basicinformation read {attribute} {node_id} 0"
         response = await self.execute_command(command)
 
+        self.logger.info(f"Basic info response: {response}")
+
         if response.status != "success":
             self.logger.error(f"Failed to get basic info: {response.error_message}")
             return None
 
         # Extract data from response
         data = response.data
+
         if not data:
             return None
 

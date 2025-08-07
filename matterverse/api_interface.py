@@ -108,14 +108,6 @@ class APIInterface:
             try:
                 self.logger.info(f"Received command: {request.command}")
 
-                # Handle test commands
-                if "test" in request.command:
-                    await self.websocket.broadcast_to_all_clients({
-                        "type": "test_response",
-                        "message": f"Test command executed: {request.command}"
-                    })
-                    return {"status": "success", "message": "Test command executed"}
-
                 # Execute command via chip-tool
                 response = await self.chip_tool.execute_command(request.command)
 
@@ -314,7 +306,7 @@ class APIInterface:
                 self.logger.error(f"Error getting device clusters: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/device/{node_id}/{endpoint}/clusters/{cluster_name}/attributes")
+        @self.app.get("/device/{node_id}/{endpoint}/{cluster_name}/attributes")
         async def get_cluster_attributes(node_id: int, endpoint: int, cluster_name: str):
             """
             Get attributes for a device cluster.
@@ -484,7 +476,7 @@ class APIInterface:
                 self.logger.error(f"Error writing attribute: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/datamodel/clusters")
+        @self.app.get("/datamodel/cluster")
         async def get_clusters():
             """
             Get cluster information.
@@ -499,7 +491,7 @@ class APIInterface:
                 self.logger.error(f"Error getting cluster information: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/datamodel/devicetypes")
+        @self.app.get("/datamodel/devicetype")
         async def get_device_types():
             """
             Get device type information.
