@@ -143,7 +143,7 @@ class APIInterface:
                 await self.websocket.send_error(f"Command execution failed: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/attributes")
+        @self.app.get("/device/attribute")
         async def get_all_attributes():
             """
             Get all attributes.
