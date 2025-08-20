@@ -247,7 +247,7 @@ class ProcessBasedChipToolManager:
     """
 
     def __init__(self, chip_tool_path: str, commissioning_dir: str, paa_cert_path: str,
-                 max_concurrent_processes: int = 10, database: Optional[Any] = None,
+                 max_concurrent_processes: int = 100, database: Optional[Any] = None,
                  data_model: Optional[Any] = None):
         """
         Initialize ProcessBased ChipTool manager.
@@ -385,7 +385,7 @@ class ProcessBasedChipToolManager:
                     "Resource is busy" in response.data.get('raw_output', '')):
                     self.logger.warning(f"[{process_id}] Resource busy detected")
                     max_retries = 3
-                    retry_delay = 1.0
+                    retry_delay = 0.05
 
                     for retry_count in range(max_retries):
                         self.logger.warning(f"[{process_id}] Resource busy detected, retrying in {retry_delay}s (attempt {retry_count + 1}/{max_retries})")
