@@ -346,23 +346,6 @@ class DeviceManager:
         device_type_hex = f"0x{int(device_type):04x}"
         return self.data_model.get_clusters_by_device_type(device_type_hex)
 
-    def get_device_attributes(self, device: Dict[str, Any], cluster_name: str) -> List[Dict[str, Any]]:
-        """
-        Get attributes for a device cluster.
-
-        Args:
-            device: Device dictionary
-            cluster_name: Cluster name
-
-        Returns:
-            List of attribute dictionaries
-        """
-        clusters = self.get_device_clusters(device)
-        if cluster_name not in clusters:
-            return []
-
-        return self.data_model.get_attributes_by_cluster_name(cluster_name)
-
     async def send_command_to_device(self, device: Dict[str, Any],
                                    cluster_name: str, command: str, *args) -> bool:
         """
