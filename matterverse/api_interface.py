@@ -2,7 +2,7 @@
 API interface for Matterverse application.
 Handles REST API endpoints and request processing.
 """
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
@@ -159,16 +159,36 @@ class APIInterface:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/device")
-        async def get_all_devices():
+        async def get_devices(
+            node: Optional[int] = Query(None, description="Filter by Node ID"),
+            endpoint: Optional[int] = Query(None, description="Filter by Endpoint ID"),
+            device_type: Optional[str] = Query(None, description="Filter by Device Type"),
+            cluster: Optional[str] = Query(None, description="Filter by Cluster name"),
+            attribute: Optional[str] = Query(None, description="Filter by Attribute name"),
+            command: Optional[str] = Query(None, description="Filter by Command name")
+        ):
             """
-            Get all devices.
+            Get devices with optional filtering.
+
+            Query Parameters:
+                node: Filter by Node ID
+                endpoint: Filter by Endpoint ID
+                device_type: Filter by Device Type
+                cluster: Filter by Cluster name
+                attribute: Filter by Attribute name
+                command: Filter by Command name
 
             Returns:
-                List of all devices
+                Filtered list of devices
             """
             try:
-                devices = self.device_manager.get_all_devices()
-                return {"devices": devices}
+                all_devices = self.device_manager.get_all_devices()
+
+                filtered_devices = self._filter_devices(
+                    all_devices, node, endpoint, device_type, cluster, attribute, command
+                )
+
+                return {"devices": filtered_devices}
             except Exception as e:
                 self.logger.error(f"Error getting devices: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
@@ -445,3 +465,110 @@ class APIInterface:
             3: {0: "IdentifyTime", 1: "IdentifyType"},  # Identify cluster
         }
         return attribute_map.get(cluster_id, {}).get(attribute_id)
+
+    def _filter_devices(self, devices: List[Dict[str, Any]], node: Optional[int],
+                       endpoint: Optional[int], device_type: Optional[str],
+                       cluster: Optional[str], attribute: Optional[str], command: Optional[str]) -> List[Dict[str, Any]]:
+        """
+        Filter devices based on query parameters.
+
+        Args:
+            devices: List of devices to filter
+            node: Filter by node ID
+            endpoint: Filter by endpoint ID
+            device_type: Filter by device type
+            cluster: Filter by cluster name
+            attribute: Filter by attribute name
+            command: Filter by command name
+
+        Returns:
+            Filtered list of devices
+        """
+        filtered_devices = []
+
+        for device in devices:
+            # Apply node filter
+            if node is not None and device.get("node") != node:
+                continue
+
+            # Apply endpoint filter
+            if endpoint is not None and device.get("endpoint") != endpoint:
+                continue
+
+            # Apply device_type filter
+            if device_type is not None and device_type not in device.get("device_type", ""):
+                continue
+
+            # Create a copy of the device to potentially modify clusters
+            filtered_device = device.copy()
+
+            # Apply cluster, attribute, and command filters
+            if cluster is not None or attribute is not None or command is not None:
+                original_clusters = device.get("clusters", [])
+                filtered_clusters = []
+
+                for cluster_data in original_clusters:
+                    cluster_name = cluster_data.get("name", "")
+
+                    # Apply cluster filter
+                    if cluster is not None and cluster_name != cluster:
+                        continue
+
+                    # Create a copy of the cluster to potentially modify attributes and commands
+                    filtered_cluster = cluster_data.copy()
+                    cluster_modified = False
+
+                    # Apply attribute filter
+                    if attribute is not None:
+                        original_attributes = cluster_data.get("attributes", [])
+                        filtered_attributes = []
+
+                        for attr in original_attributes:
+                            if attr.get("name") == attribute:
+                                filtered_attributes.append(attr)
+
+                        # Update cluster with filtered attributes
+                        if filtered_attributes:
+                            filtered_cluster["attributes"] = filtered_attributes
+                            cluster_modified = True
+                        else:
+                            # Skip this cluster if no matching attributes found
+                            continue
+
+                    # Apply command filter
+                    if command is not None:
+                        original_commands = cluster_data.get("commands", [])
+                        filtered_commands = []
+
+                        for cmd in original_commands:
+                            cmd_name = cmd.get("name") if isinstance(cmd, dict) else str(cmd)
+                            if cmd_name == command:
+                                filtered_commands.append(cmd)
+
+                        # Update cluster with filtered commands
+                        if filtered_commands:
+                            filtered_cluster["commands"] = filtered_commands
+                            cluster_modified = True
+                        else:
+                            # Skip this cluster if no matching commands found
+                            continue
+
+                    # Include cluster if it matches filters or if no specific filters applied
+                    if attribute is None and command is None:
+                        # No attribute/command filters - include cluster as is
+                        filtered_clusters.append(filtered_cluster)
+                    elif cluster_modified:
+                        # Cluster was modified by attribute/command filters
+                        filtered_clusters.append(filtered_cluster)
+
+                # Update device with filtered clusters
+                filtered_device["clusters"] = filtered_clusters
+
+                # Only include device if it has matching clusters
+                if filtered_clusters:
+                    filtered_devices.append(filtered_device)
+            else:
+                # No cluster/attribute/command filters - include device as is
+                filtered_devices.append(filtered_device)
+
+        return filtered_devices
