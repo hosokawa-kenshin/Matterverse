@@ -507,11 +507,17 @@ class PollingSubscriptionManager:
         try:
             # Create notification data according to specification
             notification_data = {
-                "node": node_id,
-                "endpoint": endpoint,
-                "cluster": cluster_name,
-                "attribute": attribute_name,
-                "value": value
+                "type": "status_report",
+                "device": {
+                    "node": node_id,
+                    "endpoint": endpoint,
+                },
+                "data": {
+                    "cluster": cluster_name,
+                    "attribute": attribute_name,
+                    "type": self.data_model.get_attribute_type_by_name(cluster_name, attribute_name),
+                    "value": value
+                }
             }
 
             # Call notification callback if set
@@ -520,6 +526,8 @@ class PollingSubscriptionManager:
                     await self._notification_callback(json.dumps(notification_data))
                 except Exception as callback_error:
                     self.logger.error(f"Error in notification callback: {callback_error}")
+            else:
+                self.logger.warning("No notification callback set - notification not sent")
 
         except Exception as e:
             self.logger.error(f"Error sending value change notification: {e}")

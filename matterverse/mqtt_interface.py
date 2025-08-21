@@ -279,16 +279,19 @@ class MQTTInterface:
             return False
 
         try:
-
             print(f"Received attribute data: {json_str}")
             json_data = json.loads(json_str)
-            node_id = json_data.get("node")
-            endpoint_id = json_data.get("endpoint")
-            cluster_name = json_data.get("cluster")
-            cluster_name = cluster_name.lower().replace("/", "").replace(" ", "")
-            value = str(json_data.get("value"))
+            device_data = json_data.get("device", {})
+            node_id = device_data.get("node")
+            endpoint_id = device_data.get("endpoint")
 
-            attribute_name = json_data.get("attribute")
+            data = json_data.get("data", {})
+            print(f"Parsed data: {data}")
+            cluster_name = data.get("cluster")
+            cluster_name = cluster_name.lower().replace("/", "").replace(" ", "")
+            value = str(data.get("value"))
+
+            attribute_name = data.get("attribute")
 
             sql_max_number = 9223372036854775807
             sql_min_number = -9223372036854775808

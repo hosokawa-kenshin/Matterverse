@@ -93,13 +93,6 @@ class MatterverseApplication:
             self.mqtt.set_data_model(self.data_model)
             self.mqtt.set_database(self.database)
 
-            # Initialize subscription manager (legacy)
-            self.subscription_manager = SubscriptionManager(
-                self.chip_tool,
-                self.data_model,
-                self.database
-            )
-
             # Initialize polling subscription manager (new)
             polling_config = PollingConfig(
                 polling_interval=self.config.get('polling_interval', 30),
@@ -161,13 +154,10 @@ class MatterverseApplication:
     def _setup_callbacks(self):
         """Setup callbacks between components."""
         # Set chip tool parsed data callback (for direct command results)
-        self.chip_tool.set_parsed_data_callback(self._handle_direct_command_result)
+        # self.chip_tool.set_parsed_data_callback(self._handle_direct_command_result)
 
         # Set MQTT command callback
         self.mqtt.set_command_callback(self.chip_tool.execute_command)
-
-        # Set subscription callback (legacy)
-        self.subscription_manager.set_subscription_callback(self._handle_subscription_data)
 
         # Set polling notification callback (new)
         self.polling_manager.set_notification_callback(self._handle_polling_notification)
@@ -185,23 +175,13 @@ class MatterverseApplication:
         """
         try:
             # Forward to MQTT for other Matterverse instances
-            self.mqtt.publish_attribute_data(json_data)
+            # self.mqtt.publish_attribute_data(json_data)
 
             # Broadcast to WebSocket clients for real-time updates
-            await self.websocket.send_parsed_data(json_data)
-
+            # await self.websocket.send_parsed_data(json_data)
+            print(f"Direct command result: {json_data}")
         except Exception as e:
             self.logger.error(f"Error handling direct command result: {e}")
-
-    async def _handle_subscription_data(self, json_data: str):
-        """
-        Handle subscription data (legacy).
-
-        Args:
-            json_data: Subscription data
-        """
-        # Forward to MQTT
-        self.mqtt.publish_attribute_data(json_data)
 
     async def _handle_polling_notification(self, json_data: str):
         """
@@ -227,7 +207,6 @@ class MatterverseApplication:
         """
         try:
             if self.polling_manager:
-                # 新しいデバイスを検出してポーリングに追加
                 added_count = await self.polling_manager.rescan_and_add_new_devices()
                 self.logger.info(f"Added {added_count} new devices to polling after commissioning")
         except Exception as e:
