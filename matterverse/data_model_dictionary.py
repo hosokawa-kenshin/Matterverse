@@ -415,6 +415,11 @@ class DataModelDictionary:
         """Get device type by ID."""
         return next((dt for dt in self._device_types if dt.get("id") == device_type_id), None)
 
+    def get_device_type_name_by_id(self, device_type_id: str) -> Optional[str]:
+        """Get device type name by ID."""
+        device_type = self.get_device_type_by_id(device_type_id)
+        return device_type.get("name") if device_type else None
+
     def get_clusters_by_device_type(self, device_type_id: str) -> List[str]:
         """Get cluster names for a device type."""
         device_type = self.get_device_type_by_id(device_type_id)
@@ -451,6 +456,31 @@ class DataModelDictionary:
             for attribute in cluster.get("attributes", []):
                 if attribute.get("name") == attribute_name:
                     return attribute.get("code")
+        return None
+
+    def get_commands_by_cluster_name(self, cluster_name: str) -> List[Dict[str, Any]]:
+        """Get commands for a cluster by name."""
+        cluster = self.get_cluster_by_name(cluster_name)
+        return cluster.get("commands", []) if cluster else []
+
+    def get_command_names_by_cluster_name(self, cluster_name: str) -> List[str]:
+        """Get command names for a cluster by name."""
+        commands = self.get_commands_by_cluster_name(cluster_name)
+        command_names = []
+        for command in commands:
+            if isinstance(command, dict):
+                command_names.append(command.get("name", ""))
+            elif isinstance(command, str):
+                command_names.append(command)
+        return [name for name in command_names if name]
+
+    def get_attribute_type_by_name(self, cluster_name: str, attribute_name: str) -> Optional[str]:
+        """Get attribute type by cluster name and attribute name."""
+        cluster = self.get_cluster_by_name(cluster_name)
+        if cluster:
+            for attribute in cluster.get("attributes", []):
+                if attribute.get("name") == attribute_name:
+                    return attribute.get("type")
         return None
 
     def get_command_name_by_code(self, cluster_id: str, command_code: str) -> Optional[str]:

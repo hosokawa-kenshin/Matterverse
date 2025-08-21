@@ -57,6 +57,7 @@ class Database:
                 Endpoint INTEGER,
                 Cluster TEXT,
                 Attribute TEXT,
+                Type TEXT,
                 Value TEXT,
                 PRIMARY KEY (NodeID, Endpoint, Cluster, Attribute)
             )
@@ -89,22 +90,179 @@ class Database:
 
     def get_all_devices(self) -> List[Dict[str, Any]]:
         """
-        Get all devices from database.
+        Get all devices with comprehensive information.
 
         Returns:
-            List of device dictionaries
+            List of device dictionaries with clusters, attributes, and commands
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+
+                # Get all devices
                 cursor.execute("""
-                SELECT NodeID, Endpoint, DeviceType, TopicID FROM Device
+                SELECT DISTINCT NodeID, Endpoint, DeviceType, TopicID FROM Device
                 """)
-                rows = cursor.fetchall()
-                return [dict(row) for row in rows]
+                device_rows = cursor.fetchall()
+
+                devices = []
+                for device_row in device_rows:
+                    node_id = device_row['NodeID']
+                    endpoint = device_row['Endpoint']
+                    device_type_name = str(device_row['DeviceType'])
+                    topic_id = device_row['TopicID']
+
+                    # Get clusters for this device
+                    clusters = self._get_device_clusters(node_id, endpoint)
+
+                    device = {
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "device_type": device_type_name or f"Unknown Device Type",
+                        "topic_id": topic_id,
+                        "clusters": clusters
+                    }
+                    devices.append(device)
+
+                return devices
+
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return []
+
+    def _get_device_clusters(self, node_id: int, endpoint: int) -> List[Dict[str, Any]]:
+        """Get clusters with attributes and commands for a device."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get all attributes for this device grouped by cluster
+                cursor.execute("""
+                SELECT DISTINCT Cluster FROM Attribute
+                WHERE NodeID = ? AND Endpoint = ?
+                ORDER BY Cluster
+                """, (node_id, endpoint))
+
+                cluster_rows = cursor.fetchall()
+                clusters = []
+
+                for cluster_row in cluster_rows:
+                    cluster_name = cluster_row['Cluster']
+
+                    # Get attributes for this cluster
+                    attributes = self._get_cluster_attributes(node_id, endpoint, cluster_name)
+
+                    # Get commands for this cluster from data model
+                    commands = self._get_cluster_commands(cluster_name)
+
+                    cluster = {
+                        "name": cluster_name,
+                        "attributes": attributes,
+                        "commands": commands
+                    }
+                    clusters.append(cluster)
+
+                return clusters
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error getting device clusters: {e}")
+            return []
+
+    def _get_cluster_attributes(self, node_id: int, endpoint: int, cluster_name: str) -> List[Dict[str, Any]]:
+        """Get attributes for a specific cluster."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                SELECT Attribute, Type, Value FROM Attribute
+                WHERE NodeID = ? AND Endpoint = ? AND Cluster = ?
+                ORDER BY Attribute
+                """, (node_id, endpoint, cluster_name))
+
+                attr_rows = cursor.fetchall()
+                attributes = []
+
+                for attr_row in attr_rows:
+                    attribute_name = attr_row['Attribute']
+                    attribute_type = attr_row['Type']
+                    value_str = attr_row['Value']
+
+                    # Try to parse value as appropriate type
+                    parsed_value = self._parse_attribute_value(value_str)
+
+                    attribute = {
+                        "name": attribute_name,
+                        "type": attribute_type,
+                        "value": parsed_value
+                    }
+                    attributes.append(attribute)
+
+                return attributes
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error getting cluster attributes: {e}")
+            return []
+
+    def _get_cluster_commands(self, cluster_name: str) -> List[Dict[str, Any]]:
+        """Get commands for a cluster from data model."""
+        commands = []
+        if not self.data_model:
+            return []
+
+        # # Use the new method from data_model if available
+        # if hasattr(self.data_model, 'get_command_names_by_cluster_name'):
+        #     return self.data_model.get_command_names_by_cluster_name(cluster_name)
+
+        # Fallback to original implementation
+        cluster = self.data_model.get_cluster_by_name(cluster_name)
+        if not cluster:
+            return []
+
+        commands_data = cluster.get("commands", [])
+        if not commands_data:
+            self.logger.warning(f"No commands found for cluster: {cluster_name}")
+            return []
+
+        for command in commands_data:
+            if isinstance(command, dict) and "name" in command:
+                command_info = {
+                    "name": command["name"],
+                    "args": command.get("args", [])
+            }
+            commands.append(command_info)
+        return commands
+
+    def _parse_attribute_value(self, value_str: str) -> Any:
+        """Parse attribute value to appropriate Python type."""
+        if not value_str:
+            return None
+
+        # Try to parse as JSON first
+        try:
+            import json
+            return json.loads(value_str)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Try to parse as boolean
+        if value_str.lower() in ('true', 'false'):
+            return value_str.lower() == 'true'
+
+        # Try to parse as integer
+        try:
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Try to parse as float
+        try:
+            return float(value_str)
+        except ValueError:
+            pass
+
+        # Return as string
+        return value_str
 
     def get_all_attributes(self) -> List[Dict[str, Any]]:
         """
@@ -165,13 +323,29 @@ class Database:
 
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+
+                # Check if attribute already exists to preserve Type field
                 cursor.execute("""
-                INSERT INTO Attribute (NodeID, Endpoint, Cluster, Attribute, Value)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(NodeID, Endpoint, Cluster, Attribute) DO UPDATE SET Value = ?
-                """, (response_node_id, response_endpoint, response_cluster, response_attribute, response_value, response_value))
+                SELECT Type FROM Attribute
+                WHERE NodeID = ? AND Endpoint = ? AND Cluster = ? AND Attribute = ?
+                """, (response_node_id, response_endpoint, response_cluster, response_attribute))
+
+                existing_row = cursor.fetchone()
+
+                if existing_row:
+                    # Update existing record, preserve Type field
+                    existing_type = existing_row['Type']
+                    cursor.execute("""
+                    UPDATE Attribute SET Value = ?
+                    WHERE NodeID = ? AND Endpoint = ? AND Cluster = ? AND Attribute = ?
+                    """, (response_value, response_node_id, response_endpoint, response_cluster, response_attribute))
+                    self.logger.info(f"Updated attribute: NodeID={response_node_id}, Endpoint={response_endpoint}, "
+                                   f"Cluster={response_cluster}, Attribute={response_attribute}, "
+                                   f"Type={existing_type} (preserved), Value={response_value}")
+                else:
+                    return True
+
                 conn.commit()
-                self.logger.info(f"Updated attribute: NodeID={response_node_id}, Endpoint={response_endpoint}, Cluster={response_cluster}, Attribute={response_attribute}, Value={response_value}")
                 return True
         except sqlite3.Error as e:
             self.logger.error(f"Update error: {e}")
@@ -404,15 +578,34 @@ class Database:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                value = None
+
+                # Check if attribute already exists
                 cursor.execute("""
-                INSERT INTO Attribute (NodeID, Endpoint, Cluster, Attribute, Value)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(NodeID, Endpoint, Cluster, Attribute) DO UPDATE SET Value = ?
-                """, (node_id, endpoint, cluster, attribute, value, value))
-                conn.commit()
-                self.logger.info(f"Inserted/Updated attribute: NodeID={node_id}, Endpoint={endpoint}, Cluster={cluster}, Attribute={attribute}, Value={value}")
-                return True
+                SELECT Type, Value FROM Attribute
+                WHERE NodeID = ? AND Endpoint = ? AND Cluster = ? AND Attribute = ?
+                """, (node_id, endpoint, cluster, attribute))
+
+                existing_row = cursor.fetchone()
+
+                if existing_row:
+                    # Attribute already exists - preserve everything
+                    self.logger.debug(f"Attribute already exists: NodeID={node_id}, Endpoint={endpoint}, "
+                                    f"Cluster={cluster}, Attribute={attribute} - skipping")
+                    return True
+                else:
+                    # New attribute - insert with Type from data_model
+                    value = None
+                    attr_type = self.data_model.get_attribute_type_by_name(cluster, attribute) if self.data_model else "unknown"
+
+                    cursor.execute("""
+                    INSERT INTO Attribute (NodeID, Endpoint, Cluster, Attribute, Type, Value)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, (node_id, endpoint, cluster, attribute, attr_type, value))
+                    conn.commit()
+
+                    self.logger.info(f"Inserted new attribute: NodeID={node_id}, Endpoint={endpoint}, "
+                                   f"Cluster={cluster}, Attribute={attribute}, Type={attr_type}, Value={value}")
+                    return True
 
         except sqlite3.Error as e:
             self.logger.error(f"Insert/Update error: {e}")

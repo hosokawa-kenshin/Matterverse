@@ -95,13 +95,14 @@ class DeviceManager:
                 if device_types:
                     # Use first device type
                     device_type = int(device_types[0].get("0x0"))
+                    device_type = self.data_model.get_device_type_name_by_id(f"0x{device_type:04x}")
 
                     if not self.database.insert_device(node_id, endpoint, device_type, topic_id):
                         self.logger.error(f"Failed to insert device: NodeID={node_id}, Endpoint={endpoint}")
                         continue
 
                     self.logger.info(f"Registered device: NodeID={node_id}, Endpoint={endpoint}, "
-                                   f"DeviceType=0x{device_type:04x}, TopicID={topic_id}")
+                                   f"DeviceType={device_type}, TopicID={topic_id}")
                 else:
                     self.logger.warning(f"No device types found for endpoint {endpoint}")
 
