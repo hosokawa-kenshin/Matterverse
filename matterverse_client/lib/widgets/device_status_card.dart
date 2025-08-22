@@ -40,7 +40,7 @@ class DeviceStatusCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _getDeviceDisplayName(),
+                          device.displayName,
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -177,19 +177,5 @@ class DeviceStatusCard extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  String _getDeviceDisplayName() {
-    // Extract meaningful name from device type
-    final deviceType = device.deviceType;
-    if (deviceType.contains('Matter On/Off Plug-in Unit')) {
-      return 'スマートプラグ';
-    } else if (deviceType.contains('Matter Electrical Sensor')) {
-      return '電力センサー';
-    } else if (deviceType.contains('Matter Dimmable Plug-in Unit')) {
-      return '調光プラグ';
-    } else {
-      return deviceType.replaceAll('Matter ', '');
-    }
   }
 }

@@ -239,6 +239,7 @@ class DeviceProvider with ChangeNotifier {
           final updatedDevice = Device(
             node: device.node,
             endpoint: device.endpoint,
+            name: device.name,
             deviceType: device.deviceType,
             topicId: device.topicId,
             clusters: updatedClusters,

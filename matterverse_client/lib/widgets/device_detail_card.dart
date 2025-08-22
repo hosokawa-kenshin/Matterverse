@@ -26,8 +26,7 @@ class DeviceDetailCard extends StatelessWidget {
       child: ExpansionTile(
         leading: _buildDeviceIcon(),
         title: Text(
-          // _getDeviceDisplayName(),
-          device.name,
+          device.displayName,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -452,16 +451,4 @@ class DeviceDetailCard extends StatelessWidget {
     }
   }
 
-  String _getDeviceDisplayName() {
-    final deviceType = device.deviceType;
-    if (deviceType.contains('Matter On/Off Plug-in Unit')) {
-      return 'スマートプラグ';
-    } else if (deviceType.contains('Matter Electrical Sensor')) {
-      return '電力センサー';
-    } else if (deviceType.contains('Matter Dimmable Plug-in Unit')) {
-      return '調光プラグ';
-    } else {
-      return deviceType.replaceAll('Matter ', '');
-    }
-  }
 }

@@ -3,6 +3,7 @@
 class Device {
   final int node;
   final int endpoint;
+  final String name;
   final String deviceType;
   final String topicId;
   final List<Cluster> clusters;
@@ -10,6 +11,7 @@ class Device {
   Device({
     required this.node,
     required this.endpoint,
+    required this.name,
     required this.deviceType,
     required this.topicId,
     required this.clusters,
@@ -19,6 +21,7 @@ class Device {
     return Device(
       node: json['node'] as int,
       endpoint: json['endpoint'] as int,
+      name: json['name'] as String? ?? '',
       deviceType: json['device_type'] as String,
       topicId: json['topic_id'] as String,
       clusters: (json['clusters'] as List)
@@ -31,6 +34,7 @@ class Device {
     return {
       'node': node,
       'endpoint': endpoint,
+      'name': name,
       'device_type': deviceType,
       'topic_id': topicId,
       'clusters': clusters.map((cluster) => cluster.toJson()).toList(),
@@ -44,6 +48,17 @@ class Device {
     } catch (e) {
       return null;
     }
+  }
+
+  String get displayName {
+    if (name.isNotEmpty) {
+      return name;
+    }
+    return deviceType.replaceFirst('Matter ', '');
+  }
+
+  bool get isOnline {
+    return isOn ?? false;
   }
 
   // Get specific attribute value
