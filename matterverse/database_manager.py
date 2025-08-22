@@ -36,6 +36,7 @@ class Database:
                 NodeID INTEGER,
                 Endpoint INTEGER,
                 DeviceType INTEGER,
+                Name TEXT,
                 TopicID TEXT,
                 PRIMARY KEY (NodeID, Endpoint)
             )
@@ -101,7 +102,7 @@ class Database:
 
                 # Get all devices
                 cursor.execute("""
-                SELECT DISTINCT NodeID, Endpoint, DeviceType, TopicID FROM Device
+                SELECT DISTINCT NodeID, Endpoint, DeviceType, Name, TopicID FROM Device
                 """)
                 device_rows = cursor.fetchall()
 
@@ -110,6 +111,7 @@ class Database:
                     node_id = device_row['NodeID']
                     endpoint = device_row['Endpoint']
                     device_type_name = str(device_row['DeviceType'])
+                    device_name = device_row['Name']
                     topic_id = device_row['TopicID']
 
                     # Get clusters for this device
@@ -118,6 +120,7 @@ class Database:
                     device = {
                         "node": node_id,
                         "endpoint": endpoint,
+                        "name": device_name,
                         "device_type": device_type_name or f"Unknown Device Type",
                         "topic_id": topic_id,
                         "clusters": clusters
@@ -492,6 +495,27 @@ class Database:
             self.logger.error(f"Query error: {e}")
             return []
 
+    def get_device_count_by_type(self, device_type: str) -> int:
+        """
+        Get the count of devices by type.
+
+        Args:
+            device_type: Device type to count
+
+        Returns:
+            Count of devices of the specified type
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT COUNT(*) FROM Device WHERE DeviceType = ?
+                """, (device_type,))
+                return cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            self.logger.error(f"Query error: {e}")
+            return 0
+
     def insert_unique_id(self, node_id: int, device_name: str, unique_id: str) -> bool:
         """
         Insert unique ID information.
@@ -535,7 +559,7 @@ class Database:
             self.logger.error(f"Query error: {e}")
             return 1
 
-    def insert_device(self, node_id: int, endpoint: int, device_type: int, topic_id: str) -> bool:
+    def insert_device(self, node_id: int, endpoint: int, device_type: int, device_name: str, topic_id: str) -> bool:
         """
         Insert device information.
 
@@ -552,9 +576,9 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                INSERT INTO Device (NodeID, Endpoint, DeviceType, TopicID)
-                VALUES (?, ?, ?, ?)
-                """, (node_id, endpoint, device_type, topic_id))
+                INSERT INTO Device (NodeID, Endpoint, DeviceType, Name, TopicID)
+                VALUES (?, ?, ?, ?, ?)
+                """, (node_id, endpoint, device_type, device_name, topic_id))
                 conn.commit()
                 self.logger.info(f"Inserted device: NodeID={node_id}, Endpoint={endpoint}, DeviceType={device_type}, TopicID={topic_id}")
                 return True

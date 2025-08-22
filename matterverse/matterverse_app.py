@@ -174,10 +174,7 @@ class MatterverseApplication:
             json_data: Command result data in JSON format
         """
         try:
-            # Forward to MQTT for other Matterverse instances
             # self.mqtt.publish_attribute_data(json_data)
-
-            # Broadcast to WebSocket clients for real-time updates
             # await self.websocket.send_parsed_data(json_data)
             print(f"Direct command result: {json_data}")
         except Exception as e:

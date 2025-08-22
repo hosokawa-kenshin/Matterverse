@@ -72,10 +72,10 @@ class DeviceManager:
             # Clean names for topic generation
             vendor_clean = re.sub(r'[ -]', '', vendor_name)
             product_clean = re.sub(r'[ -]', '', product_name)
-            device_name = f"{vendor_clean}_{product_clean}"
+            topic_name = f"{vendor_clean}_{product_clean}"
 
             # Register unique ID
-            if not self.database.insert_unique_id(node_id, device_name, unique_id):
+            if not self.database.insert_unique_id(node_id, topic_name, unique_id):
                 self.logger.error("Failed to insert unique ID to database")
                 return False
 
@@ -88,7 +88,7 @@ class DeviceManager:
             # Register each endpoint
             for endpoint in endpoints:
                 topic_id = self.generate_topic_id(node_id, unique_id, endpoint)
-                topic_id = f"{device_name}_{topic_id}"
+                topic_id = f"{topic_name} {topic_id}"
 
                 # Get device types for this endpoint
                 device_types = await self._get_endpoint_device_types(node_id, endpoint)
@@ -96,8 +96,9 @@ class DeviceManager:
                     # Use first device type
                     device_type = int(device_types[0].get("0x0"))
                     device_type = self.data_model.get_device_type_name_by_id(f"0x{device_type:04x}")
-
-                    if not self.database.insert_device(node_id, endpoint, device_type, topic_id):
+                    num = self.database.get_device_count_by_type(device_type) + 1
+                    device_name = f"{device_type} {num}"
+                    if not self.database.insert_device(node_id, endpoint, device_type, device_name, topic_id):
                         self.logger.error(f"Failed to insert device: NodeID={node_id}, Endpoint={endpoint}")
                         continue
 
