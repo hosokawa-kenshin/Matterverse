@@ -115,6 +115,38 @@ class ApiClient {
     }
   }
 
+  // Update device endpoint name
+  Future<bool> updateDeviceName({
+    required int node,
+    required int endpoint,
+    required String name,
+  }) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/device/$node/$endpoint/name';
+      _logger.i('Updating device name: $url');
+
+      final requestBody = {
+        'name': name,
+      };
+
+      final response = await _dio.post(url, data: requestBody);
+
+      if (response.statusCode == 200) {
+        final responseData = response.data;
+        _logger.i('Device name updated successfully: ${responseData['name']}');
+        return responseData['status'] == 'success';
+      } else {
+        throw ApiException('Device name update failed: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      _logger.e('Network error updating device name: ${e.message}');
+      throw ApiException('Network error: ${_getDioErrorMessage(e)}');
+    } catch (e) {
+      _logger.e('Unexpected error updating device name: $e');
+      throw ApiException('Unexpected error: $e');
+    }
+  }
+
   // Get Matter cluster information
   Future<List<MatterCluster>> getMatterClusters() async {
     try {

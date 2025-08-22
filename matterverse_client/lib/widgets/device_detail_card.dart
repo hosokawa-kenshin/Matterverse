@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../models/device_model.dart';
+import '../providers/device_provider.dart';
 
 typedef CommandCallback = Future<void> Function(
   Device device,
@@ -25,10 +28,24 @@ class DeviceDetailCard extends StatelessWidget {
       elevation: 2,
       child: ExpansionTile(
         leading: _buildDeviceIcon(),
-        title: Text(
-          device.displayName,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
+        title: GestureDetector(
+          onTap: () => _showEditNameDialog(context),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  device.displayName,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.edit,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              ),
+            ],
           ),
         ),
         subtitle: Column(
@@ -392,12 +409,12 @@ class DeviceDetailCard extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => context.pop(),
             child: const Text('キャンセル'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.of(context).pop();
+              context.pop();
               await onCommand(device, cluster.name, command.name, args);
             },
             child: const Text('実行'),
@@ -449,6 +466,104 @@ class DeviceDetailCard extends StatelessWidget {
       case 'Identify': return '識別';
       default: return commandName;
     }
+  }
+
+  void _showEditNameDialog(BuildContext context) {
+    final TextEditingController nameController = TextEditingController(
+      text: device.name.isNotEmpty ? device.name : device.displayName,
+    );
+
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('デバイス名を編集'),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              labelText: 'デバイス名',
+              hintText: '新しいデバイス名を入力してください',
+              border: OutlineInputBorder(),
+            ),
+            maxLength: 50,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => dialogContext.pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final newName = nameController.text.trim();
+                if (newName.isNotEmpty && newName != device.name) {
+                  try {
+                    dialogContext.pop();
+
+                    // Show loading indicator
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => const AlertDialog(
+                        content: Row(
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(width: 20),
+                            Text('更新中...'),
+                          ],
+                        ),
+                      ),
+                    );
+
+                    final deviceProvider = context.read<DeviceProvider>();
+                    final success = await deviceProvider.updateDeviceName(device, newName);
+
+                    // Close loading dialog
+                    if (context.mounted) {
+                      context.pop();
+                    }
+
+                    if (success) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('デバイス名を「$newName」に更新しました'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } else {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('デバイス名の更新に失敗しました'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    // Close loading dialog if still open
+                    if (context.mounted) {
+                      context.pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('エラー: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                } else {
+                  dialogContext.pop();
+                }
+              },
+              child: const Text('更新'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
 }

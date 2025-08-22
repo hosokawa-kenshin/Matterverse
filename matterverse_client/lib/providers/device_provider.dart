@@ -145,10 +145,21 @@ class DeviceProvider with ChangeNotifier {
   // Refresh all data
   Future<void> refresh() async {
     _logger.i('Refreshing all data');
-    await loadDevices();
+    
+    try {
+      await loadDevices();
+    } catch (e) {
+      _logger.e('Error during refresh: $e');
+      // Don't rethrow to allow RefreshIndicator to complete
+    }
 
     if (!isConnected) {
-      await connectWebSocket();
+      try {
+        await connectWebSocket();
+      } catch (e) {
+        _logger.e('Error connecting WebSocket during refresh: $e');
+        // Don't rethrow to allow RefreshIndicator to complete
+      }
     }
   }
 
@@ -196,6 +207,46 @@ class DeviceProvider with ChangeNotifier {
 
   Future<CommandResponse> identifyDevice(Device device) =>
       _apiClient.identifyDevice(device);
+
+  // Update device name
+  Future<bool> updateDeviceName(Device device, String newName) async {
+    try {
+      _logger.i('Updating device name: ${device.node}:${device.endpoint} to "$newName"');
+
+      final success = await _apiClient.updateDeviceName(
+        node: device.node,
+        endpoint: device.endpoint,
+        name: newName,
+      );
+
+      if (success) {
+        // Update the device in the local list
+        final deviceIndex = _devices.indexWhere(
+          (d) => d.node == device.node && d.endpoint == device.endpoint,
+        );
+
+        if (deviceIndex != -1) {
+          final updatedDevice = Device(
+            node: device.node,
+            endpoint: device.endpoint,
+            name: newName, // Update the name
+            deviceType: device.deviceType,
+            topicId: device.topicId,
+            clusters: device.clusters,
+          );
+
+          _devices[deviceIndex] = updatedDevice;
+          notifyListeners();
+          _logger.i('Updated device name locally: ${device.node}:${device.endpoint}');
+        }
+      }
+
+      return success;
+    } catch (e) {
+      _logger.e('Error updating device name: $e');
+      rethrow;
+    }
+  }
 
   // Handle WebSocket status reports
   void _handleStatusReport(StatusReport report) {
