@@ -659,6 +659,36 @@ class Database:
             self.logger.error(f"Delete error: {e}")
             return False
 
+    def update_device_name(self, node_id: int, endpoint: int, name: str) -> bool:
+        """
+        Update device name.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            name: New device name
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                UPDATE Device SET Name = ? WHERE NodeID = ? AND Endpoint = ?
+                """, (name, node_id, endpoint))
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    self.logger.info(f"Updated device name: NodeID={node_id}, Endpoint={endpoint}, Name={name}")
+                    return True
+                else:
+                    self.logger.warning(f"No device found to update: NodeID={node_id}, Endpoint={endpoint}")
+                    return False
+        except sqlite3.Error as e:
+            self.logger.error(f"Update device name error: {e}")
+            return False
+
     def close(self):
         """Close database connection if open."""
         if self._connection:

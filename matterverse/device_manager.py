@@ -456,3 +456,26 @@ class DeviceManager:
         except Exception as e:
             self.logger.error(f"Error writing attribute to device: {e}")
             return False
+
+    def update_device_name(self, node_id: int, endpoint: int, name: str) -> bool:
+        """
+        Update device name in database.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            name: New device name
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            success = self.database.update_device_name(node_id, endpoint, name)
+            if success:
+                self.logger.info(f"Updated device name: NodeID={node_id}, Endpoint={endpoint}, Name={name}")
+            else:
+                self.logger.warning(f"Failed to update device name: NodeID={node_id}, Endpoint={endpoint}")
+            return success
+        except Exception as e:
+            self.logger.error(f"Error updating device name: {e}")
+            return False

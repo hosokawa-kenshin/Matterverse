@@ -46,6 +46,11 @@ class AttributeRequest(BaseModel):
     value: Optional[Any] = None
 
 
+class DeviceNameRequest(BaseModel):
+    """Request model for device name update."""
+    name: str
+
+
 class APIInterface:
     """API interface for REST endpoints."""
 
@@ -163,6 +168,7 @@ class APIInterface:
             node: Optional[int] = Query(None, description="Filter by Node ID"),
             endpoint: Optional[int] = Query(None, description="Filter by Endpoint ID"),
             device_type: Optional[str] = Query(None, description="Filter by Device Type"),
+            name: Optional[str] = Query(None, description="Filter by Device Name"),
             cluster: Optional[str] = Query(None, description="Filter by Cluster name"),
             attribute: Optional[str] = Query(None, description="Filter by Attribute name"),
             command: Optional[str] = Query(None, description="Filter by Command name")
@@ -174,6 +180,7 @@ class APIInterface:
                 node: Filter by Node ID
                 endpoint: Filter by Endpoint ID
                 device_type: Filter by Device Type
+                name: Filter by Device Name
                 cluster: Filter by Cluster name
                 attribute: Filter by Attribute name
                 command: Filter by Command name
@@ -185,7 +192,7 @@ class APIInterface:
                 all_devices = self.device_manager.get_all_devices()
 
                 filtered_devices = self._filter_devices(
-                    all_devices, node, endpoint, device_type, cluster, attribute, command
+                    all_devices, node, endpoint, device_type, name, cluster, attribute, command
                 )
 
                 return {"devices": filtered_devices}
@@ -317,6 +324,42 @@ class APIInterface:
                 raise
             except Exception as e:
                 self.logger.error(f"Error deleting device: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/device/{node_id}/{endpoint}/name")
+        async def update_device_name(node_id: int, endpoint: int, request: DeviceNameRequest):
+            """
+            Update device name.
+
+            Args:
+                node_id: Node ID
+                endpoint: Endpoint ID
+                request: Request body with new device name
+
+            Returns:
+                Update result
+            """
+            try:
+                # Check if device exists
+                device = self.device_manager.get_device_by_node_id_endpoint(node_id, endpoint)
+                if not device:
+                    raise HTTPException(status_code=404, detail="Device not found")
+
+                # Update device name
+                success = self.device_manager.update_device_name(node_id, endpoint, request.name)
+                if success:
+                    return {
+                        "status": "success",
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "name": request.name
+                    }
+                else:
+                    raise HTTPException(status_code=400, detail="Device name update failed")
+            except HTTPException:
+                raise
+            except Exception as e:
+                self.logger.error(f"Error updating device name: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/device/{node_id}/{endpoint}/{cluster_name}/{attribute_name}")
@@ -467,7 +510,7 @@ class APIInterface:
         return attribute_map.get(cluster_id, {}).get(attribute_id)
 
     def _filter_devices(self, devices: List[Dict[str, Any]], node: Optional[int],
-                       endpoint: Optional[int], device_type: Optional[str],
+                       endpoint: Optional[int], device_type: Optional[str], name: Optional[str],
                        cluster: Optional[str], attribute: Optional[str], command: Optional[str]) -> List[Dict[str, Any]]:
         """
         Filter devices based on query parameters.
@@ -477,6 +520,7 @@ class APIInterface:
             node: Filter by node ID
             endpoint: Filter by endpoint ID
             device_type: Filter by device type
+            name: Filter by device name
             cluster: Filter by cluster name
             attribute: Filter by attribute name
             command: Filter by command name
@@ -497,6 +541,10 @@ class APIInterface:
 
             # Apply device_type filter
             if device_type is not None and device_type not in device.get("device_type", ""):
+                continue
+
+            # Apply name filter
+            if name is not None and name not in device.get("name", ""):
                 continue
 
             # Create a copy of the device to potentially modify clusters
