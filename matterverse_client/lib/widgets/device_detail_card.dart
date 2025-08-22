@@ -26,7 +26,8 @@ class DeviceDetailCard extends StatelessWidget {
       child: ExpansionTile(
         leading: _buildDeviceIcon(),
         title: Text(
-          _getDeviceDisplayName(),
+          // _getDeviceDisplayName(),
+          device.name,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),

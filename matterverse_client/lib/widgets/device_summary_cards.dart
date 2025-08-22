@@ -23,10 +23,10 @@ class DeviceSummaryCards extends StatelessWidget {
           return Row(
             children: [
               Expanded(child: _buildTotalDevicesCard(context)),
-              const Gap(16),
-              Expanded(child: _buildActiveDevicesCard(context)),
-              const Gap(16),
-              Expanded(child: _buildPowerConsumptionCard(context)),
+            //   const Gap(16),
+            //   Expanded(child: _buildActiveDevicesCard(context)),
+            //   const Gap(16),
+            //   Expanded(child: _buildPowerConsumptionCard(context)),
             ],
           );
         } else {

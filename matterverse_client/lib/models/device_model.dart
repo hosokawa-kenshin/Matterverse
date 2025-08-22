@@ -58,22 +58,47 @@ class Device {
 
   // Check if device is currently on (for On/Off devices)
   bool? get isOn {
-    return getAttributeValue('On/Off', 'OnOff') as bool?;
+    final value = getAttributeValue('On/Off', 'OnOff');
+    return _parseToBool(value);
   }
 
   // Get active power (for Electrical Power Measurement devices)
   int? get activePower {
-    return getAttributeValue('Electrical Power Measurement', 'ActivePower') as int?;
+    final value = getAttributeValue('Electrical Power Measurement', 'ActivePower');
+    return _parseToInt(value);
   }
 
   // Get RMS voltage (for Electrical Power Measurement devices)
   int? get rmsVoltage {
-    return getAttributeValue('Electrical Power Measurement', 'RMSVoltage') as int?;
+    final value = getAttributeValue('Electrical Power Measurement', 'RMSVoltage');
+    return _parseToInt(value);
   }
 
   // Get RMS current (for Electrical Power Measurement devices)
   int? get rmsCurrent {
-    return getAttributeValue('Electrical Power Measurement', 'RMSCurrent') as int?;
+    final value = getAttributeValue('Electrical Power Measurement', 'RMSCurrent');
+    return _parseToInt(value);
+  }
+
+  static int? _parseToInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) {
+      return int.tryParse(value);
+    }
+    if (value is double) return value.toInt();
+    return null;
+  }
+
+  static bool? _parseToBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is String) {
+      final lowerValue = value.toLowerCase();
+      return lowerValue == 'true' || lowerValue == '1';
+    }
+    if (value is int) return value != 0;
+    return null;
   }
 
   @override
