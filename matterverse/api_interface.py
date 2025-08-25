@@ -245,6 +245,31 @@ class APIInterface:
                 self.logger.error(f"Error getting device: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        @self.app.post("/test")
+        async def test_commissioning(request: Optional[CommissioningRequest] = None):
+            """
+            Test commissioning endpoint.
+
+            Args:
+                request: Optional commissioning request with manual pairing code
+
+            Returns:
+                Test commissioning result
+            """
+            try:
+                if request and request.manual_pairing_code:
+                #    response = await self.chip_tool.commissioning(request.manual_pairing_code, 2)
+                   response = await self.device_manager.commissioning_device(request.manual_pairing_code)
+                if response:
+                    return {"status": "success", "devices": response}
+                else:
+                    return {"status": "error", "detail": "No devices commissioned"}
+            except HTTPException:
+                raise
+            except Exception as e:
+                self.logger.error(f"Error in test commissioning: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.post("/device")
         async def commission_device(request: Optional[CommissioningRequest] = None):
             """
@@ -257,16 +282,14 @@ class APIInterface:
                 Commissioning result
             """
             try:
-                success = await self.device_manager.register_new_device()
+                if request and request.manual_pairing_code:
+                   success = await self.device_manager.commissioning_device(request.manual_pairing_code)
                 if success:
-                    # デバイスコミッショニング成功後のコールバック実行
                     if hasattr(self, '_device_commissioned_callback'):
                         try:
                             await self._device_commissioned_callback()
                         except Exception as callback_error:
                             self.logger.error(f"Error in device commissioned callback: {callback_error}")
-                            # コールバックエラーでもコミッショニング成功は返す
-
                     return {"status": "success", "message": "Device commissioned successfully"}
                 else:
                     raise HTTPException(status_code=400, detail="Device commissioning failed")
@@ -289,13 +312,11 @@ class APIInterface:
                 Commissioning window result
             """
             try:
-                # This would need to be implemented in device_manager
-                # For now, return a placeholder response
                 return {
                     "status": "success",
                     "node": node_id,
-                    "endpoint": 1,  # Would need to be determined
-                    "manual_pairing_code": "56789123456",  # Would be generated
+                    "endpoint": 1,
+                    "manual_pairing_code": "56789123456",
                     "duration": request.duration
                 }
             except Exception as e:

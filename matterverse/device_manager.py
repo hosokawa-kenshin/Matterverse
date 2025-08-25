@@ -42,7 +42,32 @@ class DeviceManager:
         hash_value = hashlib.sha256(combined.encode()).hexdigest()
         return hash_value
 
-    async def register_new_device(self) -> bool:
+    async def commissioning_device(self, pairing_code: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Commission a device with the given pairing code.
+
+        Args:
+            pairing_code: The pairing code for the device
+
+        Returns:
+            True if commissioning was successful, False otherwise
+        """
+        try:
+            self.logger.info(f"Commissioning device with pairing code: {pairing_code}")
+            node_id = self.database.get_new_node_id()
+            success = await self.chip_tool.commissioning(pairing_code, node_id)
+            if not success:
+                return None
+            success = await self.register_new_device(node_id)
+            if not success:
+                return None
+            devices = self.database.get_devices_by_node_id(node_id)
+            return devices
+        except Exception as e:
+            self.logger.error(f"Error commissioning device: {e}")
+            return None
+
+    async def register_new_device(self, node_id: int) -> bool:
         """
         Register a new device to the database.
 
@@ -51,9 +76,6 @@ class DeviceManager:
         """
         try:
             self.logger.info("Starting device registration...")
-
-            # Get next available node ID
-            node_id = self.database.get_new_node_id()
 
             # Get basic device information
             unique_id = await self._get_device_basic_info(node_id, "unique-id")

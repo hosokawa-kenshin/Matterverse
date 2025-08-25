@@ -392,11 +392,31 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                SELECT NodeID, Endpoint, DeviceType, TopicID
+                SELECT DISTINCT NodeID, Endpoint, DeviceType, Name, TopicID
                 FROM Device WHERE NodeID = ?
                 """, (node_id,))
                 rows = cursor.fetchall()
-                return [dict(row) for row in rows]
+
+                devices = []
+                for device_row in rows:
+                    node_id = device_row['NodeID']
+                    endpoint = device_row['Endpoint']
+                    device_type_name = str(device_row['DeviceType'])
+                    device_name = device_row['Name']
+                    topic_id = device_row['TopicID']
+
+                    clusters = self._get_device_clusters(node_id, endpoint)
+                    device = {
+                        "node": node_id,
+                        "endpoint": endpoint,
+                        "name": device_name,
+                        "device_type": device_type_name or f"Unknown Device Type",
+                        "topic_id": topic_id,
+                        "clusters": clusters
+                    }
+                    devices.append(device)
+
+                    return devices
         except sqlite3.Error as e:
             self.logger.error(f"Query error: {e}")
             return []

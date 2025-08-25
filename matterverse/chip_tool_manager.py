@@ -376,8 +376,10 @@ class ProcessBasedChipToolManager:
                 self.logger.debug(f"[{process_id}] Process completed with return code: {process.returncode}")
 
                 # Parse output and generate response
-                response = await self._parse_process_output(stdout, stderr, command, process_id)
-                # Check for "Resource is busy" and retry if needed
+                if command.startswith("pairing code") or command.startswith("pairing code-pairverifier"):
+                    response = await self._parse_commissioning_output(stdout, stderr, command, process_id)
+                else:
+                    response = await self._parse_process_output(stdout, stderr, command, process_id)
 
                 if (response.data and
                     isinstance(response.data, dict) and
@@ -454,6 +456,67 @@ class ProcessBasedChipToolManager:
             # Cleanup process from active list
             self.active_processes.pop(process_id, None)
 
+    async def _parse_commissioning_output(self, stdout: bytes, stderr: bytes, command: str, process_id: str) -> ChipToolResponse:
+        try:
+            # Decode output
+            stdout_str = stdout.decode('utf-8', errors='replace')
+            stderr_str = stderr.decode('utf-8', errors='replace')
+
+            self.logger.debug(f"[{process_id}] Raw stdout: {stdout_str[:500]}...")
+            if stderr_str:
+                self.logger.debug(f"[{process_id}] Raw stderr: {stderr_str[:500]}...")
+
+            # Check for obvious errors in stderr
+            if stderr_str and any(error in stderr_str.lower() for error in
+                                ['error', 'failed', 'exception', 'segmentation fault']):
+                return ChipToolResponse(
+                    status="error",
+                    command=command,
+                    error_message=stderr_str.strip()
+                )
+
+            # Process stdout with parser
+            if stdout_str:
+                cleaned_output = self.parser.delete_garbage_from_output(stdout_str)
+                if cleaned_output:
+                    blocks = self.parser.extract_named_blocks(cleaned_output)
+                    formatted_datas = []
+                    for block in blocks:
+                        try:
+                            parsed_data = self.parser.parse_chip_data(block)
+                            if parsed_data:
+                                # Format parsed data for response
+                                formatted_data = self._format_parsed_data(parsed_data)
+                                formatted_datas.append(formatted_data)
+                                # formatted_datas.append(parsed_data)
+                        except Exception as parse_error:
+                            self.logger.warning(f"[{process_id}] Parse error for block: {parse_error}")
+                            continue
+                    return ChipToolResponse(
+                        status="success",
+                        command=command,
+                        data=formatted_datas
+                    )
+
+            # If no parseable data found, return raw output
+            return ChipToolResponse(
+                status="success",
+                command=command,
+                data={
+                    "raw_output": formatted_data if 'formatted_data' in locals() else (parsed_data if 'parsed_data' in locals() else stdout_str.strip()),
+                    "note": "No structured data found, returning raw output"
+                }
+            )
+
+        except Exception as e:
+            self.logger.error(f"[{process_id}] Output parsing failed: {e}")
+            return ChipToolResponse(
+                status="error",
+                command=command,
+                error_message=f"Output parsing failed: {str(e)}"
+            )
+
+
     async def _parse_process_output(self, stdout: bytes, stderr: bytes,
                                   command: str, process_id: str) -> ChipToolResponse:
         """
@@ -499,15 +562,14 @@ class ProcessBasedChipToolManager:
                                 # Format parsed data for response
                                 formatted_data = self._format_parsed_data(parsed_data)
 
-                                # Call parsed data callback if set
-                                if self._parsed_data_callback:
-                                    try:
-                                        if asyncio.iscoroutinefunction(self._parsed_data_callback):
-                                            await self._parsed_data_callback(json.dumps(formatted_data))
-                                        else:
-                                            self._parsed_data_callback(json.dumps(formatted_data))
-                                    except Exception as callback_error:
-                                        self.logger.error(f"[{process_id}] Error in parsed data callback: {callback_error}")
+                                # if self._parsed_data_callback:
+                                #     try:
+                                #         if asyncio.iscoroutinefunction(self._parsed_data_callback):
+                                #             await self._parsed_data_callback(json.dumps(formatted_data))
+                                #         else:
+                                #             self._parsed_data_callback(json.dumps(formatted_data))
+                                #     except Exception as callback_error:
+                                #         self.logger.error(f"[{process_id}] Error in parsed data callback: {callback_error}")
 
                                 return ChipToolResponse(
                                     status="success",
@@ -554,14 +616,24 @@ class ProcessBasedChipToolManager:
 
                 if invoke_response_ibs:
                     invoke_response_ib = invoke_response_ibs[0].get("InvokeResponseIB", {})
-                    command_status_ib = invoke_response_ib.get("CommandStatusIB", {})
-                    command_path_ib = command_status_ib.get("CommandPathIB", {})
-                    status_ib = command_status_ib.get("StatusIB", {})
+                    command_data_ib = invoke_response_ib.get("CommandDataIB", {})
+                    if not command_data_ib:
+                        command_status_ib = invoke_response_ib.get("CommandStatusIB", {})
+                        status_ib = command_status_ib.get("StatusIB", {})
+                        command_path_ib = command_status_ib.get("CommandPathIB", {})
 
-                    node_id = command_path_ib.get("NodeID")
-                    endpoint = command_path_ib.get("EndpointId")
-                    cluster_id = command_path_ib.get("ClusterId")
-                    command_id = command_path_ib.get("CommandId")
+                        node_id = command_path_ib.get("NodeID")
+                        endpoint = command_path_ib.get("EndpointId")
+                        cluster_id = command_path_ib.get("ClusterId")
+                        command_id = command_path_ib.get("CommandId")
+                    else:
+                        command_path_ib = command_data_ib.get("CommandPathIB", {})
+                        command_fields = command_data_ib.get("CommandFields", {})
+
+                        node_id = command_path_ib.get("NodeID")
+                        endpoint = command_path_ib.get("EndpointId")
+                        cluster_id = command_path_ib.get("ClusterId")
+                        command_id = command_path_ib.get("CommandId")
 
                     cluster_name = None
                     command_name = None
@@ -573,12 +645,22 @@ class ProcessBasedChipToolManager:
                         except Exception as e:
                             self.logger.warning(f"Error getting cluster/command names: {e}")
 
-                    return {
-                        "node": node_id,
-                        "endpoint": endpoint,
-                        "cluster": cluster_name or f"Cluster_{cluster_id}",
-                        "command": command_name or f"Command_{command_id}",
-                    }
+                    if command_data_ib:
+                        return {
+                            "node": node_id,
+                            "endpoint": endpoint,
+                            "cluster": cluster_name or f"Cluster_{cluster_id}",
+                            "command": command_name or f"Command_{command_id}",
+                            "command_fields": command_fields,
+                        }
+                    else:
+                        return {
+                            "node": node_id,
+                            "endpoint": endpoint,
+                            "cluster": cluster_name or f"Cluster_{cluster_id}",
+                            "command": command_name or f"Command_{command_id}",
+                            "status": status_ib,
+                        }
 
             if "ReportDataMessage" in parsed_data:
                 report_data = parsed_data["ReportDataMessage"]
@@ -635,6 +717,36 @@ class ProcessBasedChipToolManager:
         return {
             "raw_data": parsed_data
         }
+
+    async def commissioning(self, pairing_code: str, node_id: Optional[int] = None) -> bool:
+        """
+        Commission a device using pairing code.
+
+        Args:
+            pairing_code: The pairing code (QR code payload or manual code)
+            node_id: Target node ID (if None, will use next available)
+
+        Returns:
+            True if commissioning successful, False otherwise
+        """
+        try:
+            if node_id is None:
+                node_id = self.database.get_new_node_id() if hasattr(self, 'database') else 1
+
+            command = f"pairing code {node_id} {pairing_code}"
+            response = await self.execute_command(command, timeout=120.0)
+            if response.data:
+                for item in response.data:
+                    if item['node'] == node_id:
+                        if item['command_fields']['0x0'] == "0":
+                            return True
+                        continue
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error during commissioning: {e}")
+            return False
 
     # Utility methods for common operations
     async def read_attribute(self, node_id: str, endpoint: str, cluster: str, attribute: str) -> ChipToolResponse:
