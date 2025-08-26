@@ -299,6 +299,280 @@ class APIInterface:
                 self.logger.error(f"Error commissioning device: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        @self.app.post("/demo")
+        async def demo_commissioning(request: Optional[CommissioningRequest] = None):
+            """
+            Demo commissioning endpoint.
+
+            Returns:
+                Demo commissioning result
+            """
+            try:
+                return {"status": "success", "devices": [
+                    {
+                        "node": 1,
+                        "endpoint": 1,
+                        "name": "Matter Light",
+                        "device_type": "Matter On/Off Light",
+                        "topic_id": "nomlab-light-b034be419188ba3d766d03f86325c560e19fbed9d80bca62fa509b51af97b70a",
+                        "clusters": [
+                          {
+                            "name": "Descriptor",
+                            "attributes": [
+                              {
+                                "name": "ClientList",
+                                "type": "array",
+                                "value": []
+                              },
+                              {
+                                "name": "DeviceTypeList",
+                                "type": "array",
+                                "value": "[{'0x0': '266', '0x1': '1'}]"
+                              },
+                              {
+                                "name": "PartsList",
+                                "type": "array",
+                                "value": []
+                              },
+                              {
+                                "name": "ServerList",
+                                "type": "array",
+                                "value": "['3', '4', '6', '29']"
+                              }
+                            ],
+                            "commands": []
+                          },
+                          {
+                            "name": "Groups",
+                            "attributes": [
+                              {
+                                "name": "NameSupport",
+                                "type": "NameSupportBitmap",
+                                "value": 128
+                              }
+                            ],
+                            "commands": [
+                              {
+                                "name": "AddGroup",
+                                "args": [
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  },
+                                  {
+                                    "name": "GroupName",
+                                    "type": "char_string"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "ViewGroup",
+                                "args": [
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "GetGroupMembership",
+                                "args": [
+                                  {
+                                    "name": "GroupList",
+                                    "type": "group_id"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "RemoveGroup",
+                                "args": [
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "RemoveAllGroups",
+                                "args": []
+                              },
+                              {
+                                "name": "AddGroupIfIdentifying",
+                                "args": [
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  },
+                                  {
+                                    "name": "GroupName",
+                                    "type": "char_string"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "AddGroupResponse",
+                                "args": [
+                                  {
+                                    "name": "Status",
+                                    "type": "enum8"
+                                  },
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "ViewGroupResponse",
+                                "args": [
+                                  {
+                                    "name": "Status",
+                                    "type": "enum8"
+                                  },
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  },
+                                  {
+                                    "name": "GroupName",
+                                    "type": "char_string"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "GetGroupMembershipResponse",
+                                "args": [
+                                  {
+                                    "name": "Capacity",
+                                    "type": "int8u"
+                                  },
+                                  {
+                                    "name": "GroupList",
+                                    "type": "group_id"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "RemoveGroupResponse",
+                                "args": [
+                                  {
+                                    "name": "Status",
+                                    "type": "enum8"
+                                  },
+                                  {
+                                    "name": "GroupID",
+                                    "type": "group_id"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "name": "Identify",
+                            "attributes": [
+                              {
+                                "name": "IdentifyTime",
+                                "type": "int16u",
+                                "value": 0
+                              },
+                              {
+                                "name": "IdentifyType",
+                                "type": "IdentifyTypeEnum",
+                                "value": 2
+                              }
+                            ],
+                            "commands": [
+                              {
+                                "name": "Identify",
+                                "args": [
+                                  {
+                                    "name": "IdentifyTime",
+                                    "type": "int16u"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "TriggerEffect",
+                                "args": [
+                                  {
+                                    "name": "EffectIdentifier",
+                                    "type": "EffectIdentifierEnum"
+                                  },
+                                  {
+                                    "name": "EffectVariant",
+                                    "type": "EffectVariantEnum"
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "name": "On/Off",
+                            "attributes": [
+                              {
+                                "name": "OnOff",
+                                "type": "boolean",
+                                "value": "true"
+                              }
+                            ],
+                            "commands": [
+                              {
+                                "name": "Off",
+                                "args": []
+                              },
+                              {
+                                "name": "On",
+                                "args": []
+                              },
+                              {
+                                "name": "Toggle",
+                                "args": []
+                              },
+                              {
+                                "name": "OffWithEffect",
+                                "args": [
+                                  {
+                                    "name": "EffectIdentifier",
+                                    "type": "EffectIdentifierEnum"
+                                  },
+                                  {
+                                    "name": "EffectVariant",
+                                    "type": "enum8"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "OnWithRecallGlobalScene",
+                                "args": []
+                              },
+                              {
+                                "name": "OnWithTimedOff",
+                                "args": [
+                                  {
+                                    "name": "OnOffControl",
+                                    "type": "OnOffControlBitmap"
+                                  },
+                                  {
+                                    "name": "OnTime",
+                                    "type": "int16u"
+                                  },
+                                  {
+                                    "name": "OffWaitTime",
+                                    "type": "int16u"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                  }
+
+            except Exception as e:
+                    self.logger.error(f"Error  commissioning: {e}")
+                    raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.post("/device/{node_id}/window")
         async def open_commissioning_window(node_id: int, request: CommissioningWindowRequest):
             """
