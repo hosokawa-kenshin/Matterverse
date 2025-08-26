@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:matterverse_app/main.dart';
-import 'package:matterverse_app/navigation/scaffold_with_navigation.dart';
 import 'package:matterverse_app/navigation/navigation_app_bar.dart';
 import 'package:matterverse_app/navigation/navigation_item.dart';
 import 'package:matterverse_app/theme/theme_mode_button.dart';

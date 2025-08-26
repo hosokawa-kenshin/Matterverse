@@ -79,12 +79,11 @@ class _DevicesPageState extends State<DevicesPage> {
   }
 
   Widget _buildSearchAndFilters(DeviceProvider deviceProvider) {
-    final deviceTypes = ['All', 'Plug', 'Sensor', 'Light']
-        .where((type) {
-          if (type == 'All') return true;
-          return deviceProvider.devices.any((device) =>
-              device.deviceType.toLowerCase().contains(type.toLowerCase()));
-        }).toList();
+    final deviceTypes = ['All', 'Plug', 'Sensor', 'Light'].where((type) {
+      if (type == 'All') return true;
+      return deviceProvider.devices.any((device) =>
+          device.deviceType.toLowerCase().contains(type.toLowerCase()));
+    }).toList();
 
     return Column(
       children: [
@@ -162,17 +161,20 @@ class _DevicesPageState extends State<DevicesPage> {
 
   Widget _buildListLayout(List<Device> devices, DeviceProvider deviceProvider) {
     return Column(
-      children: devices.map((device) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(),
-          child: DeviceDetailCard(
-            device: device,
-            onCommand: (device, cluster, command, args) =>
-                _executeCommand(deviceProvider, device, cluster, command, args),
-          ),
-        ),
-      )).toList(),
+      children: devices
+          .map((device) => Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(),
+                  child: DeviceDetailCard(
+                    device: device,
+                    onCommand: (device, cluster, command, args) =>
+                        _executeCommand(
+                            deviceProvider, device, cluster, command, args),
+                  ),
+                ),
+              ))
+          .toList(),
     );
   }
 
@@ -191,8 +193,11 @@ class _DevicesPageState extends State<DevicesPage> {
             Text(
               _searchQuery.isNotEmpty ? '検索結果が見つかりません' : 'デバイスが見つかりません',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-              ),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.7),
+                  ),
             ),
             const Gap(8),
             Text(
@@ -200,8 +205,11 @@ class _DevicesPageState extends State<DevicesPage> {
                   ? '別のキーワードで検索してください。'
                   : 'サーバーの設定を確認するか、デバイスを追加してください。',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-              ),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.5),
+                  ),
               textAlign: TextAlign.center,
             ),
           ],
@@ -229,16 +237,16 @@ class _DevicesPageState extends State<DevicesPage> {
                   Text(
                     'エラーが発生しました',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                      fontWeight: FontWeight.bold,
-                    ),
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                   const Gap(4),
                   Text(
                     error,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
                   ),
                 ],
               ),
@@ -259,9 +267,11 @@ class _DevicesPageState extends State<DevicesPage> {
 
     // Filter by device type
     if (_selectedDeviceType != 'All') {
-      filtered = filtered.where((device) =>
-          device.deviceType.toLowerCase().contains(_selectedDeviceType.toLowerCase())
-      ).toList();
+      filtered = filtered
+          .where((device) => device.deviceType
+              .toLowerCase()
+              .contains(_selectedDeviceType.toLowerCase()))
+          .toList();
     }
 
     return filtered;
@@ -269,11 +279,16 @@ class _DevicesPageState extends State<DevicesPage> {
 
   String _getDeviceTypeDisplayName(String type) {
     switch (type) {
-      case 'All': return '全て';
-      case 'Plug': return 'プラグ';
-      case 'Sensor': return 'センサー';
-      case 'Light': return '照明';
-      default: return type;
+      case 'All':
+        return '全て';
+      case 'Plug':
+        return 'プラグ';
+      case 'Sensor':
+        return 'センサー';
+      case 'Light':
+        return '照明';
+      default:
+        return type;
     }
   }
 

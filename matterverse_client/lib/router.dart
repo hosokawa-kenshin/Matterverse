@@ -5,16 +5,56 @@ import 'package:matterverse_app/navigation/scaffold_with_navigation.dart';
 import 'package:matterverse_app/feature/dashboard.dart';
 import 'package:matterverse_app/feature/devices.dart';
 import 'package:matterverse_app/feature/settings.dart';
+import 'package:matterverse_app/feature/login.dart';
+import 'package:matterverse_app/providers/auth_provider.dart';
 
 part 'router.g.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 
-final router = GoRouter(
-  routes: $appRoutes,
-  debugLogDiagnostics: kDebugMode,
-  navigatorKey: _rootNavigatorKey,
-);
+// AuthProviderを受け取るファクトリー関数
+GoRouter createRouter(AuthProvider authProvider) {
+  return GoRouter(
+    routes: $appRoutes,
+    debugLogDiagnostics: kDebugMode,
+    navigatorKey: _rootNavigatorKey,
+    redirect: (context, state) {
+      final isLoading = authProvider.isLoading;
+      final isAuthenticated = authProvider.isAuthenticated;
+      final isLoginPage = state.matchedLocation == '/login';
+      final isDevicesPage = state.matchedLocation == '/devices';
+      final isSettingsPage = state.matchedLocation == '/settings';
+
+      if (isLoading) return null;
+
+      if (!isAuthenticated) {
+        if (isDevicesPage) {
+          return '/login';
+        }
+        return null;
+      }
+
+      if (isAuthenticated && isLoginPage) {
+        return '/';
+      }
+
+      return null;
+    },
+    refreshListenable: authProvider,
+  );
+}
+
+@TypedGoRoute<LoginRoute>(
+  path: '/login',
+)
+class LoginRoute extends GoRouteData {
+  const LoginRoute();
+
+  @override
+  Widget build(BuildContext context, GoRouterState state) {
+    return const LoginPage();
+  }
+}
 
 @TypedStatefulShellRoute<ShellRouteData>(
   branches: [
@@ -81,7 +121,6 @@ class SettingsPageRoute extends GoRouteData {
 
   @override
   Widget build(BuildContext context, GoRouterState state) {
-    // return SettingsPage();
     return SettingsPage();
   }
 }

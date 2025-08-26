@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:adaptive_theme/adaptive_theme.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:matterverse_app/widget/page_header.dart';
 import 'package:matterverse_app/widget/content_view.dart';
 import '../providers/device_provider.dart';
+import '../providers/auth_provider.dart';
 import '../services/api_client.dart';
 import '../services/websocket_service.dart';
 
@@ -45,6 +47,10 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const Gap(24),
 
+            // User information
+            _buildUserInformation(),
+            const Gap(24),
+
             // Server settings
             _buildServerSettings(),
             const Gap(24),
@@ -79,8 +85,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 Text(
                   'サーバー設定',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ],
             ),
@@ -166,8 +172,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 Text(
                   'テーマ設定',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ],
             ),
@@ -223,17 +229,20 @@ class _SettingsPageState extends State<SettingsPage> {
                     Text(
                       'データ管理',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                   ],
                 ),
                 const Gap(16),
 
                 // Data statistics
-                _buildDataStatistic('総デバイス数', '${deviceProvider.totalDevices}台'),
-                _buildDataStatistic('アクティブデバイス', '${deviceProvider.activeDevices}台'),
-                _buildDataStatistic('接続状態', deviceProvider.connectionState.displayName),
+                _buildDataStatistic(
+                    '総デバイス数', '${deviceProvider.totalDevices}台'),
+                _buildDataStatistic(
+                    'アクティブデバイス', '${deviceProvider.activeDevices}台'),
+                _buildDataStatistic(
+                    '接続状態', deviceProvider.connectionState.displayName),
 
                 const Gap(16),
 
@@ -287,8 +296,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 Text(
                   'アプリケーション情報',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ],
             ),
@@ -296,7 +305,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             _buildInfoRow('アプリ名', 'Matterverse'),
             _buildInfoRow('バージョン', '1.0.0'),
-            
+
             const Gap(16),
 
             // About button
@@ -339,13 +348,11 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final tempApiClient = ApiClient();
       tempApiClient.updateBaseUrl(_serverUrlController.text.trim());
-      
+
       final isHealthy = await tempApiClient.checkHealth();
-      
+
       setState(() {
-        _connectionTestResult = isHealthy 
-            ? '✓ 接続に成功しました'
-            : '✗ サーバーに接続できませんでした';
+        _connectionTestResult = isHealthy ? '✓ 接続に成功しました' : '✗ サーバーに接続できませんでした';
       });
 
       tempApiClient.dispose();
@@ -399,5 +406,108 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ],
     );
+  }
+
+  Widget _buildUserInformation() {
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, child) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.person, color: Colors.green),
+                    const Gap(8),
+                    Text(
+                      'ユーザー情報',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ],
+                ),
+                const Gap(16),
+                ListTile(
+                  leading: Icon(
+                    authProvider.isAuthenticated
+                        ? Icons.account_circle
+                        : Icons.account_circle_outlined,
+                  ),
+                  title: const Text('ユーザー名'),
+                  subtitle: Text(
+                    authProvider.isAuthenticated
+                        ? authProvider.username ?? '未設定'
+                        : 'ゲスト（未ログイン）',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const Gap(16),
+                SizedBox(
+                  width: double.infinity,
+                  child: authProvider.isAuthenticated
+                      ? ElevatedButton.icon(
+                          onPressed: authProvider.isLoading
+                              ? null
+                              : () => _showLogoutDialog(authProvider),
+                          icon: authProvider.isLoading
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.logout),
+                          label: const Text('ログアウト'),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor:
+                                Theme.of(context).colorScheme.error,
+                          ),
+                        )
+                      : ElevatedButton.icon(
+                          onPressed: () => _navigateToLogin(),
+                          icon: const Icon(Icons.login),
+                          label: const Text('ログイン'),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor:
+                                Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLogoutDialog(AuthProvider authProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ログアウト'),
+        content: const Text('ログアウトしますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await authProvider.logout();
+            },
+            child: const Text('ログアウト'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToLogin() {
+    context.go('/login');
   }
 }

@@ -36,8 +36,8 @@ class DeviceDetailCard extends StatelessWidget {
                 child: Text(
                   device.displayName,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ),
               Icon(
@@ -67,8 +67,8 @@ class DeviceDetailCard extends StatelessWidget {
                 const Gap(16),
 
                 // Clusters
-                ...device.clusters.map((cluster) =>
-                    _buildClusterSection(context, cluster)),
+                ...device.clusters
+                    .map((cluster) => _buildClusterSection(context, cluster)),
               ],
             ),
           ),
@@ -98,7 +98,7 @@ class DeviceDetailCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: iconColor?.withOpacity(0.1),
+        color: iconColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(iconData, color: iconColor, size: 32),
@@ -143,8 +143,8 @@ class DeviceDetailCard extends StatelessWidget {
             Text(
               'デバイス情報',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
             const Gap(8),
             _buildInfoRow('Node', device.node.toString()),
@@ -197,16 +197,17 @@ class DeviceDetailCard extends StatelessWidget {
               Text(
                 cluster.name,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
           subtitle: Text(
             '${cluster.attributes.length} 属性, ${cluster.commands.length} コマンド',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-            ),
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                ),
           ),
           children: [
             Padding(
@@ -219,9 +220,9 @@ class DeviceDetailCard extends StatelessWidget {
                     Text(
                       '属性',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                     ),
                     const Gap(8),
                     ...cluster.attributes.map((attribute) =>
@@ -234,16 +235,18 @@ class DeviceDetailCard extends StatelessWidget {
                     Text(
                       'コマンド',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.secondary,
-                      ),
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.secondary,
+                          ),
                     ),
                     const Gap(8),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: cluster.commands.map((command) =>
-                          _buildCommandButton(context, cluster, command)).toList(),
+                      children: cluster.commands
+                          .map((command) =>
+                              _buildCommandButton(context, cluster, command))
+                          .toList(),
                     ),
                   ],
                 ],
@@ -255,7 +258,8 @@ class DeviceDetailCard extends StatelessWidget {
     );
   }
 
-  Widget _buildAttributeRow(BuildContext context, Cluster cluster, Attribute attribute) {
+  Widget _buildAttributeRow(
+      BuildContext context, Cluster cluster, Attribute attribute) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -280,8 +284,11 @@ class DeviceDetailCard extends StatelessWidget {
                 Text(
                   attribute.type,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                  ),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.6),
+                      ),
                 ),
               ],
             ),
@@ -312,9 +319,11 @@ class DeviceDetailCard extends StatelessWidget {
       case AttributeUIType.switch_:
         return Switch(
           value: value as bool? ?? false,
-          onChanged: attribute.isWritable ? (newValue) {
-            // Handle attribute change
-          } : null,
+          onChanged: attribute.isWritable
+              ? (newValue) {
+                  // Handle attribute change
+                }
+              : null,
         );
 
       case AttributeUIType.meter:
@@ -350,7 +359,8 @@ class DeviceDetailCard extends StatelessWidget {
     }
   }
 
-  Widget _buildCommandButton(BuildContext context, Cluster cluster, Command command) {
+  Widget _buildCommandButton(
+      BuildContext context, Cluster cluster, Command command) {
     final hasArgs = command.hasArguments;
 
     return ElevatedButton.icon(
@@ -369,7 +379,8 @@ class DeviceDetailCard extends StatelessWidget {
     );
   }
 
-  Future<void> _executeCommand(BuildContext context, Cluster cluster, Command command) async {
+  Future<void> _executeCommand(
+      BuildContext context, Cluster cluster, Command command) async {
     if (command.hasArguments) {
       // Show dialog for command arguments
       await _showCommandArgumentsDialog(context, cluster, command);
@@ -379,7 +390,8 @@ class DeviceDetailCard extends StatelessWidget {
     }
   }
 
-  Future<void> _showCommandArgumentsDialog(BuildContext context, Cluster cluster, Command command) async {
+  Future<void> _showCommandArgumentsDialog(
+      BuildContext context, Cluster cluster, Command command) async {
     final args = <String, dynamic>{};
 
     return showDialog(
@@ -388,24 +400,26 @@ class DeviceDetailCard extends StatelessWidget {
         title: Text('${command.name} コマンド'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: command.args.map((arg) =>
-              TextFormField(
-                decoration: InputDecoration(
-                  labelText: '${arg.name} (${arg.type})',
-                  hintText: arg.required ? '必須' : '任意',
+          children: command.args
+              .map(
+                (arg) => TextFormField(
+                  decoration: InputDecoration(
+                    labelText: '${arg.name} (${arg.type})',
+                    hintText: arg.required ? '必須' : '任意',
+                  ),
+                  onChanged: (value) {
+                    // Parse value based on type
+                    if (arg.type.contains('int')) {
+                      args[arg.name] = int.tryParse(value) ?? 0;
+                    } else if (arg.type.contains('bool')) {
+                      args[arg.name] = value.toLowerCase() == 'true';
+                    } else {
+                      args[arg.name] = value;
+                    }
+                  },
                 ),
-                onChanged: (value) {
-                  // Parse value based on type
-                  if (arg.type.contains('int')) {
-                    args[arg.name] = int.tryParse(value) ?? 0;
-                  } else if (arg.type.contains('bool')) {
-                    args[arg.name] = value.toLowerCase() == 'true';
-                  } else {
-                    args[arg.name] = value;
-                  }
-                },
-              ),
-          ).toList(),
+              )
+              .toList(),
         ),
         actions: [
           TextButton(
@@ -426,45 +440,69 @@ class DeviceDetailCard extends StatelessWidget {
 
   IconData _getClusterIcon(String clusterName) {
     switch (clusterName) {
-      case 'On/Off': return Icons.power_settings_new;
-      case 'Identify': return Icons.visibility;
-      case 'Groups': return Icons.group;
-      case 'Electrical Power Measurement': return Icons.flash_on;
-      case 'Electrical Energy Measurement': return Icons.battery_charging_full;
-      case 'Descriptor': return Icons.info;
-      default: return Icons.settings;
+      case 'On/Off':
+        return Icons.power_settings_new;
+      case 'Identify':
+        return Icons.visibility;
+      case 'Groups':
+        return Icons.group;
+      case 'Electrical Power Measurement':
+        return Icons.flash_on;
+      case 'Electrical Energy Measurement':
+        return Icons.battery_charging_full;
+      case 'Descriptor':
+        return Icons.info;
+      default:
+        return Icons.settings;
     }
   }
 
   Color _getClusterColor(String clusterName) {
     switch (clusterName) {
-      case 'On/Off': return Colors.green;
-      case 'Identify': return Colors.blue;
-      case 'Groups': return Colors.purple;
-      case 'Electrical Power Measurement': return Colors.orange;
-      case 'Electrical Energy Measurement': return Colors.amber;
-      case 'Descriptor': return Colors.grey;
-      default: return Colors.grey;
+      case 'On/Off':
+        return Colors.green;
+      case 'Identify':
+        return Colors.blue;
+      case 'Groups':
+        return Colors.purple;
+      case 'Electrical Power Measurement':
+        return Colors.orange;
+      case 'Electrical Energy Measurement':
+        return Colors.amber;
+      case 'Descriptor':
+        return Colors.grey;
+      default:
+        return Colors.grey;
     }
   }
 
   IconData _getCommandIcon(String commandName) {
     switch (commandName.toLowerCase()) {
-      case 'on': return Icons.power;
-      case 'off': return Icons.power_off;
-      case 'toggle': return Icons.power_settings_new;
-      case 'identify': return Icons.visibility;
-      default: return Icons.play_arrow;
+      case 'on':
+        return Icons.power;
+      case 'off':
+        return Icons.power_off;
+      case 'toggle':
+        return Icons.power_settings_new;
+      case 'identify':
+        return Icons.visibility;
+      default:
+        return Icons.play_arrow;
     }
   }
 
   String _getCommandDisplayName(String commandName) {
     switch (commandName) {
-      case 'On': return 'オン';
-      case 'Off': return 'オフ';
-      case 'Toggle': return 'トグル';
-      case 'Identify': return '識別';
-      default: return commandName;
+      case 'On':
+        return 'オン';
+      case 'Off':
+        return 'オフ';
+      case 'Toggle':
+        return 'トグル';
+      case 'Identify':
+        return '識別';
+      default:
+        return commandName;
     }
   }
 
@@ -516,7 +554,8 @@ class DeviceDetailCard extends StatelessWidget {
                     );
 
                     final deviceProvider = context.read<DeviceProvider>();
-                    final success = await deviceProvider.updateDeviceName(device, newName);
+                    final success =
+                        await deviceProvider.updateDeviceName(device, newName);
 
                     // Close loading dialog
                     if (context.mounted) {
@@ -566,4 +605,19 @@ class DeviceDetailCard extends StatelessWidget {
     );
   }
 
+  void _showAuthenticationRequiredDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('認証が必要'),
+        content: const Text('デバイス操作を行うにはログインが必要です。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 }
