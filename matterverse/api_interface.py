@@ -103,11 +103,38 @@ class APIInterface:
 
         @self.app.get("/health")
         async def health_check():
-            """Health check endpoint."""
-            return {
-                "status": "healthy",
-                "websocket_clients": self.websocket.connected_clients_count
-            }
+            """Health check endpoint for Docker and monitoring."""
+            try:
+                # Check database connection
+                db_status = "healthy"
+                try:
+                    _ = self.device_manager.get_all_devices()
+                except Exception:
+                    db_status = "unhealthy"
+
+                # Check chip-tool availability
+                chip_tool_status = "healthy"
+                try:
+                    import os
+                    chip_tool_path = os.getenv('CHIP_TOOL_PATH', '/opt/chip-tool/chip-tool')
+                    if not os.path.exists(chip_tool_path):
+                        chip_tool_status = "chip-tool not found"
+                except Exception:
+                    chip_tool_status = "unknown"
+
+                return {
+                    "status": "healthy" if db_status == "healthy" else "unhealthy",
+                    "websocket_clients": self.websocket.connected_clients_count,
+                    "database": db_status,
+                    "chip_tool": chip_tool_status,
+                    "version": "1.0.0"
+                }
+            except Exception as e:
+                return {
+                    "status": "unhealthy",
+                    "error": str(e),
+                    "version": "1.0.0"
+                }
 
         @self.app.post("/command")
         async def execute_command(request: CommandRequest):

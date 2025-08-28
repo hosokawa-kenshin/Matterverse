@@ -1,0 +1,11 @@
+services:
+  matterverse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: matterverse-app
+    restart: unless-stopped
+    volumes:
+      - ./db:/app/db
+      - ./commissioning_dir:/app/commissioning_dir
+    network_mode: host

@@ -9,3 +9,4 @@ requirements-test.txt
 pyproject.toml
 htmlcov/
 .pytest_cache/
+docs/
