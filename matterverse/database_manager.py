@@ -672,6 +672,19 @@ class Database:
                 cursor.execute("""
                 DELETE FROM Device WHERE NodeID = ? AND Endpoint = ?
                 """, (node_id, endpoint))
+                cursor.execute("""
+                DELETE FROM Attribute WHERE NodeID = ? AND Endpoint = ?
+                """, (node_id, endpoint))
+                cursor.execute("""
+                SELECT COUNT(*) FROM Device WHERE NodeID = ?
+                """, (node_id,))
+                device_count = cursor.fetchone()[0]
+
+                if device_count == 0:
+                    cursor.execute("""
+                    DELETE FROM UniqueID WHERE NodeID = ?
+                    """, (node_id,))
+                    self.logger.info(f"Deleted UniqueID entry for NodeID={node_id} (no devices remaining)")
                 conn.commit()
                 self.logger.info(f"Deleted device: NodeID={node_id}, Endpoint={endpoint}")
                 return True

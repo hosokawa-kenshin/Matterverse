@@ -110,7 +110,7 @@ class DeviceManager:
             # Register each endpoint
             for endpoint in endpoints:
                 topic_id = self.generate_topic_id(node_id, unique_id, endpoint)
-                topic_id = f"{topic_name} {topic_id}"
+                topic_id = f"{topic_name}_{topic_id}"
 
                 # Get device types for this endpoint
                 device_types = await self._get_endpoint_device_types(node_id, endpoint)

@@ -165,10 +165,11 @@ class MQTTInterface:
             return
 
         name = "Test Device"  # TODO: Get actual device name
-        topic_id = device.get("TopicID")
+        topic_id = device.get("topic_id")
         device_type = f"0x{int(device.get('DeviceType', 0)):04x}"
         clusters = self._data_model.get_clusters_by_device_type(device_type)
 
+        self.logger.info(f"Publishing Homie device: {device}")
         base = f"homie/{topic_id}"
 
         # Publish device properties
@@ -221,7 +222,6 @@ class MQTTInterface:
         self.client.publish(f"{base}/{cluster_name}/{attribute_name}/$name",
                           attribute_name, retain=True)
 
-        # Set data type based on attribute type
         if "Enum" in attr_type or attribute_name == "CurrentMode":
             self.client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype",
                               "enum", retain=True)
@@ -315,7 +315,7 @@ class MQTTInterface:
             result = self.client.publish(topic, value, retain=True)
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                self.logger.info("MQTT publish successful")
+                self.logger.info(f"MQTT publish successful: {topic} -> {value}")
                 return True
             else:
                 self.logger.error(f"MQTT publish failed with result code: {result.rc}")

@@ -272,10 +272,10 @@ class APIInterface:
                 self.logger.error(f"Error getting device: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.post("/test")
-        async def test_commissioning(request: Optional[CommissioningRequest] = None):
+        @self.app.post("/device")
+        async def commissioning(request: Optional[CommissioningRequest] = None):
             """
-            Test commissioning endpoint.
+            Commissioning endpoint.
 
             Args:
                 request: Optional commissioning request with manual pairing code
@@ -285,7 +285,6 @@ class APIInterface:
             """
             try:
                 if request and request.manual_pairing_code:
-                #    response = await self.chip_tool.commissioning(request.manual_pairing_code, 2)
                    response = await self.device_manager.commissioning_device(request.manual_pairing_code)
                 if response:
                     return {"status": "success", "devices": response}
@@ -295,35 +294,6 @@ class APIInterface:
                 raise
             except Exception as e:
                 self.logger.error(f"Error in test commissioning: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @self.app.post("/device")
-        async def commission_device(request: Optional[CommissioningRequest] = None):
-            """
-            Commission a new device.
-
-            Args:
-                request: Optional commissioning request with manual pairing code
-
-            Returns:
-                Commissioning result
-            """
-            try:
-                if request and request.manual_pairing_code:
-                   success = await self.device_manager.commissioning_device(request.manual_pairing_code)
-                if success:
-                    if hasattr(self, '_device_commissioned_callback'):
-                        try:
-                            await self._device_commissioned_callback()
-                        except Exception as callback_error:
-                            self.logger.error(f"Error in device commissioned callback: {callback_error}")
-                    return {"status": "success", "message": "Device commissioned successfully"}
-                else:
-                    raise HTTPException(status_code=400, detail="Device commissioning failed")
-            except HTTPException:
-                raise
-            except Exception as e:
-                self.logger.error(f"Error commissioning device: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/demo")
@@ -341,7 +311,7 @@ class APIInterface:
                         "endpoint": 1,
                         "name": "Matter Light",
                         "device_type": "Matter On/Off Light",
-                        "topic_id": "nomlab-light-b034be419188ba3d766d03f86325c560e19fbed9d80bca62fa509b51af97b70a",
+                        "topic_id": "nomlab_light_b034be419188ba3d766d03f86325c560e19fbed9d80bca62fa509b51af97b70a",
                         "clusters": [
                           {
                             "name": "Descriptor",
