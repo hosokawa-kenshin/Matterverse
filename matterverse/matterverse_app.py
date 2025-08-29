@@ -173,12 +173,11 @@ class MatterverseApplication:
         Args:
             json_data: Command result data in JSON format
         """
-        try:
+        # try:
             # self.mqtt.publish_attribute_data(json_data)
             # await self.websocket.send_parsed_data(json_data)
-            print(f"Direct command result: {json_data}")
-        except Exception as e:
-            self.logger.error(f"Error handling direct command result: {e}")
+        # except Exception as e:
+        #     self.logger.error(f"Error handling direct command result: {e}")
 
     async def _handle_polling_notification(self, json_data: str):
         """

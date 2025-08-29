@@ -423,7 +423,6 @@ class PollingSubscriptionManager:
             if not response_data:
                 return None
 
-            print(response_data)
             # For ProcessBasedChipToolManager formatted responses
             if "value" in response_data:
                 return response_data["value"]

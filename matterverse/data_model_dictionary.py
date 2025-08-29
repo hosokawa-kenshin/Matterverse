@@ -328,8 +328,6 @@ class DataModelDictionary:
 
                 # Filter by supported types
                 supported_types = ['int', 'bool', 'string', 'Bitmap', 'Enum', 'array','Struct']
-                if 'Struct' in attribute_type:
-                    print(f"Skipping struct type attribute: {attr.get('name')}")
                 if any(t in attribute_type for t in supported_types):
                     filtered_attributes.append(attr)
 

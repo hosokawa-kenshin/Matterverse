@@ -224,7 +224,6 @@ class Database:
 
         commands_data = cluster.get("commands", [])
         if not commands_data:
-            self.logger.warning(f"No commands found for cluster: {cluster_name}")
             return []
 
         for command in commands_data:

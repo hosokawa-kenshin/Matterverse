@@ -166,10 +166,8 @@ class MQTTInterface:
 
         name = "Test Device"  # TODO: Get actual device name
         topic_id = device.get("topic_id")
-        device_type = f"0x{int(device.get('DeviceType', 0)):04x}"
-        clusters = self._data_model.get_clusters_by_device_type(device_type)
+        clusters = device.get("clusters", [])
 
-        self.logger.info(f"Publishing Homie device: {device}")
         base = f"homie/{topic_id}"
 
         # Publish device properties
@@ -180,8 +178,9 @@ class MQTTInterface:
 
         # Prepare cluster names
         cluster_names = []
+
         for cluster in clusters:
-            cluster_nm = cluster.lower().replace("/", "").replace(" ", "")
+            cluster_nm = cluster.get("name", "").lower().replace("/", "").replace(" ", "")
             cluster_names.append(cluster_nm)
 
         self.client.publish(f"{base}/$nodes", ",".join(cluster_names), retain=True)
@@ -193,17 +192,17 @@ class MQTTInterface:
         self.client.publish(f"{base}/$state", "ready", retain=True)
         self.logger.info(f"Homie device created: {base}")
 
-    def _publish_cluster_info(self, base: str, cluster: str):
+    def _publish_cluster_info(self, base: str, cluster: Dict[str, Any]):
         """Publish cluster information for a device."""
         if not self._data_model:
             return
 
-        attributes = self._data_model.get_attributes_by_cluster_name(cluster)
-        cluster_name = cluster.lower().replace("/", "").replace(" ", "")
+        attributes = cluster.get("attributes", [])
+        cluster_name = cluster.get("name", "").lower().replace("/", "").replace(" ", "")
 
-        self.client.publish(f"{base}/{cluster_name}/$name", cluster, retain=True)
+        self.client.publish(f"{base}/{cluster_name}/$name", cluster.get("name", ""), retain=True)
 
-        attribute_names = [attr["name"] for attr in attributes]
+        attribute_names = [attr.get("name", "") for attr in attributes]
         self.client.publish(f"{base}/{cluster_name}/$properties",
                           ",".join(attribute_names), retain=True)
 
@@ -211,12 +210,12 @@ class MQTTInterface:
             self._publish_attribute_info(base, cluster_name, cluster, attr)
 
     def _publish_attribute_info(self, base: str, cluster_name: str,
-                               cluster: str, attr: Dict[str, Any]):
+                               cluster: Dict[str, Any], attr: Dict[str, Any]):
         """Publish attribute information."""
         if not self._data_model:
             return
 
-        attribute_name = attr["name"]
+        attribute_name = attr.get("name", "")
         attr_type = attr.get("type", "")
 
         self.client.publish(f"{base}/{cluster_name}/{attribute_name}/$name",
@@ -234,6 +233,11 @@ class MQTTInterface:
                                       enum_format, retain=True)
                     break
 
+        # elif "Bitmap" in attr_type:
+        #     bitmap_dict = self._data_model.get_bitmap_dict_by_bitmap_name(attr_type)
+        #     self.client.publish(f"{base}/{cluster_name}/{attribute_name}_{bitname}/$datatype",
+        #                       "boolean", retain=True)
+
         elif "int" in attr_type:
             self.client.publish(f"{base}/{cluster_name}/{attribute_name}/$datatype",
                               "integer", retain=True)
@@ -249,7 +253,7 @@ class MQTTInterface:
                               "string", retain=True)
 
         # Set settable property
-        if attr['writable'] == "true" or attr["name"] == "OnOff":
+        if attr.get("writable", "") == "true" or attr.get("name", "") == "OnOff":
             self.client.publish(f"{base}/{cluster_name}/{attribute_name}/$settable",
                               "true", retain=True)
         else:
@@ -279,14 +283,12 @@ class MQTTInterface:
             return False
 
         try:
-            print(f"Received attribute data: {json_str}")
             json_data = json.loads(json_str)
             device_data = json_data.get("device", {})
             node_id = device_data.get("node")
             endpoint_id = device_data.get("endpoint")
 
             data = json_data.get("data", {})
-            print(f"Parsed data: {data}")
             cluster_name = data.get("cluster")
             cluster_name = cluster_name.lower().replace("/", "").replace(" ", "")
             value = str(data.get("value"))

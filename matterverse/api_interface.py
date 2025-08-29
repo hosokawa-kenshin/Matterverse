@@ -155,9 +155,7 @@ class APIInterface:
 
                 # Format response according to API design
                 if response.status == "success" and response.data:
-                    # Extract structured data from response
                     formatted_response = self._format_command_response(response)
-                    print(f"Formatted response: {formatted_response}")
                     return {
                         "status": "success",
                         "command": request.command,

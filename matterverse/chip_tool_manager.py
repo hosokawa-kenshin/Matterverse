@@ -824,7 +824,6 @@ class ProcessBasedChipToolManager:
 
         # Extract data from response
         data = response.data
-        print(f"Response data: {data}")
         if not data:
             return []
 
