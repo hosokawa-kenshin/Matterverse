@@ -173,21 +173,6 @@ class APIInterface:
                 await self.websocket.send_error(f"Command execution failed: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/device/attribute")
-        async def get_all_attributes():
-            """
-            Get all attributes.
-
-            Returns:
-                List of all attributes
-            """
-            try:
-                attributes = self.device_manager.get_all_attributes()
-                return {"attributes": attributes}
-            except Exception as e:
-                self.logger.error(f"Error getting attributes: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
-
         @self.app.get("/device")
         async def get_devices(
             node: Optional[int] = Query(None, description="Filter by Node ID"),
@@ -225,50 +210,6 @@ class APIInterface:
                 self.logger.error(f"Error getting devices: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/device/{node_id}")
-        async def get_device_by_node_id(node_id: int):
-            """
-            Get devices by node ID.
-
-            Args:
-                node_id: Node ID
-
-            Returns:
-                List of devices for the node
-            """
-            try:
-                devices = self.device_manager.get_device_by_node_id(node_id)
-                if not devices:
-                    raise HTTPException(status_code=404, detail="No devices found for node ID")
-                return {"devices": devices}
-            except HTTPException:
-                raise
-            except Exception as e:
-                self.logger.error(f"Error getting device by node ID: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @self.app.get("/device/{node_id}/{endpoint}")
-        async def get_device_by_node_id_endpoint(node_id: int, endpoint: int):
-            """
-            Get device by node ID and endpoint.
-
-            Args:
-                node_id: Node ID
-                endpoint: Endpoint ID
-
-            Returns:
-                Device information
-            """
-            try:
-                device = self.device_manager.get_device_by_node_id_endpoint(node_id, endpoint)
-                if not device:
-                    raise HTTPException(status_code=404, detail="Device not found")
-                return {"device": device}
-            except HTTPException:
-                raise
-            except Exception as e:
-                self.logger.error(f"Error getting device: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/device")
         async def commissioning(request: Optional[CommissioningRequest] = None):
@@ -691,7 +632,6 @@ class APIInterface:
             except Exception as e:
                 self.logger.error(f"Error writing attribute: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
-
 
         @self.app.get("/datamodel/cluster")
         async def get_clusters():

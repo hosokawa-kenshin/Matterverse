@@ -161,7 +161,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Matter/Thread Group](https://csa-iot.org/all-solutions/matter/) for the Matter protocol
 - [ESP-Matter](https://github.com/espressif/esp-matter) for ESP32 integration
 - [Project CHIP](https://github.com/project-chip/connectedhomeip) for the core Matter SDK
-
-## Support
-
-For questions and support, please open an issue in this repository.
