@@ -18,8 +18,8 @@ This document provides instructions for running Matterverse using Docker contain
 
 2. **Configure environment variables**
    ```bash
-   cp .env.example .env
-   vim .env
+   cp config/.docker_env.example /config/.env
+   vim config/.env
    # Edit .env file with your specific configuration
    ```
 
@@ -61,9 +61,7 @@ CHIP_TOOL_PATH=/opt/chip-tool/chip-tool
 The following directories are mounted as volumes for persistence:
 
 - `./db` - SQLite database storage
-- `./logs` - Application logs
 - `./config` - Configuration files
-- `./sdk` - Matter SDK files
 
 ## Development Mode
 

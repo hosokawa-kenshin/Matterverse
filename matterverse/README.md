@@ -22,7 +22,7 @@ The **Matterverse** is a FastAPI-based application that serves as the central hu
 
 2. **Configure environment**
    ```bash
-   cp .env.example .env
+   cp config/.env.local.example .env
    # Edit .env with your specific configuration
    ```
 

@@ -19,7 +19,7 @@ class Config:
         if env_file:
             load_dotenv(env_file)
         else:
-            load_dotenv()
+            load_dotenv("./config/.env")
 
     @property
     def chip_tool_path(self) -> str:
