@@ -7,7 +7,7 @@ The name "Matterverse" combines "Matter" (the communication protocol) and "Unive
 
 ## Project Overview
 
-Currently, the project focuses on replacing the communication protocol of BLE RSSI-based positioning systems with Matter, creating a more interoperable and vendor-neutral solution.
+Currently, the project focuses on replacing the communication protocol of BLE RSSI-based positioning systems with Matter, creating a more interoperable and vendor-neutral solution. Device exposure from Matter to MQTT has been implemented. Future development will explore representing MQTT devices as Matter devices to enable bidirectional protocol bridging.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ The Matterverse ecosystem consists of several components:
 - **Matterverse**: Central application managing Matter devices, MQTT communication, and data processing
 - **ESP32 Examples**: Hardware implementations for beacon aggregation and mediation
 - **Client Application**: Flutter-based mobile app for system interaction
-- **Matter SDK**: Integrated Matter/Thread/Zigbee connectivity solution
+- **Matter SDK**: Extended Matter/Thread/Zigbee connectivity solution with industrial-specific device types based on connectedhomeip
 
 ## Quick Start
 
@@ -34,10 +34,16 @@ The Matterverse ecosystem consists of several components:
    git clone https://github.com/hosokawa-kenshin/Matterverse.git
    cd Matterverse
    ```
+2. **Configure environment variables**
+   ```bash
+   cd matterverse
+   cp config/.env.docker.example /config/.env
+   vim config/.env
+   # Edit .env file with your specific configuration
+   MQTT_BROKER_URL=mqtt://example.com  # Update with your MQTT broker
 
 2. **Start with Docker Compose**
    ```bash
-   cd matterverse
    docker-compose up --build
    ```
 
@@ -47,23 +53,69 @@ The Matterverse ecosystem consists of several components:
    - MQTT WebSocket: localhost:9001
 
 ### Manual Installation
-
-1. **Install dependencies**
+1. **Install prerequisite packages**
    ```bash
-   cd matterverse
+   sudo apt-get install git gcc g++ pkg-config libssl-dev libdbus-1-dev \
+   libglib2.0-dev libavahi-client-dev ninja-build python3-venv python3-dev \
+   python3-pip unzip libgirepository1.0-dev libcairo2-dev libreadline-dev default-jre
+   ```
+
+2. **Clone Matterverse repository**
+   ```bash
+   git clone https://github.com/hosokawa-kenshin/Matterverse.git --recursive
+   ```
+   *This may take some time. Ensure stable network connection for proper submodule cloning*
+   ```bash
+   export TOPDIR=$HOME/Matterverse
+   ```
+
+3. **Setup connectedhomeip SDK**
+   ```bash
+   cd $TOPDIR/sdk
+   source scripts/bootstrap.sh
+   echo "source $TOPDIR/sdk/scripts/activate.sh" >> ~/.bashrc
+   ```
+
+4. **Build chip-tool**
+   ```bash
+   cd $TOPDIR/sdk/examples/chip-tool/
+   gn gen build
+   ninja -C build
+   ```
+
+5. **Download PAA certificates (for commercial devices)**
+   ```bash
+   cd $TOPDIR/sdk/credentials
+   python fetch_paa_certs_from_dcl.py --use-main-net-http
+   ```
+   *Success if `$TOPDIR/sdk/credentials/paa-root-certs/` directory is created*
+
+6. **Configure Matterverse**
+   ```bash
+   cd $TOPDIR/matterverse
+   cp config/.env.local.example .env
+   # Edit .env file with your configuration
+   ```
+
+   Key settings in `.env`:
+   ```bash
+   MQTT_BROKER_URL=mqtt://example.com  # Update with your MQTT broker
+   ```
+
+7. **Install Python dependencies**
+   ```bash
    pip install -r requirements.txt
    ```
 
-2. **Configure environment**
+8. **Run the server**
    ```bash
-   cp config/.env.example config/.env
-   # Edit .env with your configuration
+   python3 main.py
    ```
 
-3. **Run the application**
-   ```bash
-   python main.py
-   ```
+9. **Access the application**
+   - API Documentation: http://localhost:8000/docs
+   - Health Check: http://localhost:8000/health
+   - WebSocket: ws://localhost:8000/ws
 
 ## Project Structure
 
@@ -78,7 +130,7 @@ Matterverse/
 ├── examples/              # ESP32 hardware implementations
 │   ├── beacon_aggregator/ # Matter-enabled beacon aggregator
 │   └── beacon_mediator/   # BLE-to-Matter bridge device
-├── matterverse_client/    # Flutter mobile application
+├── matterverse_client/    # Flutter application
 ├── sdk/                   # Matter SDK integration
 └── docs/                  # Documentation
 ```
@@ -116,7 +168,7 @@ ESP32-based device that:
 
 ### Client Application
 
-Flutter-based mobile application for:
+Flutter-based application for:
 - System monitoring and control
 - Device status visualization
 - Configuration management
@@ -143,14 +195,6 @@ Full Docker containerization with:
 - Integrated MQTT broker
 - Health monitoring
 - Volume persistence for data
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
 
 ## License
 

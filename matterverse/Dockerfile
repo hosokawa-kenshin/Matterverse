@@ -86,18 +86,6 @@ RUN chown -R matterverse:matterverse /app
 # Switch to non-root user
 USER matterverse
 
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV CHIP_TOOL_PATH=/usr/local/bin/chip-tool
-ENV COMMISSIONING_DIR=/app/commissioning_dir
-ENV DATABASE_PATH=/app/db/matterverse.db
-ENV DEVICETYPE_XML_FILE=/app/data_model/matter-devices.xml
-ENV CLUSTER_XML_DIR=/app/data_model
-ENV PAA_CERT_DIR_PATH=/app/paa-root-certs
-ENV MQTT_BROKER_URL=172.23.81.17
-ENV MQTT_BROKER_PORT=9001
-ENV LOG_LEVEL=INFO
-
 # Expose port
 EXPOSE 8000
 

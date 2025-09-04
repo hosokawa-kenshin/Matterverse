@@ -14,24 +14,66 @@ The **Matterverse** is a FastAPI-based application that serves as the central hu
 - SQLite 3
 
 ### Installation
+1. **Install prerequisite packages**
+   ```bash
+   sudo apt-get install git gcc g++ pkg-config libssl-dev libdbus-1-dev \
+   libglib2.0-dev libavahi-client-dev ninja-build python3-venv python3-dev \
+   python3-pip unzip libgirepository1.0-dev libcairo2-dev libreadline-dev default-jre
+   ```
 
-1. **Install dependencies**
+2. **Clone Matterverse repository**
+   ```bash
+   git clone https://github.com/hosokawa-kenshin/Matterverse.git --recursive
+   ```
+   *This may take some time. Ensure stable network connection for proper submodule cloning*
+   ```bash
+   export TOPDIR=path/to/Matterverse
+   ```
+
+3. **Setup connectedhomeip SDK**
+   ```bash
+   cd $TOPDIR/sdk
+   source scripts/bootstrap.sh
+   echo "source $TOPDIR/sdk/scripts/activate.sh" >> ~/.bashrc
+   ```
+
+4. **Build chip-tool**
+   ```bash
+   cd $TOPDIR/sdk/examples/chip-tool/
+   gn gen build
+   ninja -C build
+   ```
+
+5. **Download PAA certificates (for commercial devices)**
+   ```bash
+   cd $TOPDIR/sdk/credentials
+   python fetch_paa_certs_from_dcl.py --use-main-net-http
+   ```
+   *Success if `$TOPDIR/sdk/credentials/paa-root-certs/` directory is created*
+
+6. **Configure Matterverse**
+   ```bash
+   cd $TOPDIR/matterverse
+   cp config/.env.local.example .env
+   # Edit .env file with your configuration
+   ```
+
+   Key settings in `.env`:
+   ```bash
+   MQTT_BROKER_URL=mqtt://example.com  # Update with your MQTT broker
+   ```
+
+7. **Install Python dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **Configure environment**
+8. **Run the server**
    ```bash
-   cp config/.env.local.example .env
-   # Edit .env with your specific configuration
+   python3 main.py
    ```
 
-3. **Run the server**
-   ```bash
-   python main.py
-   ```
-
-4. **Access the API**
+9. **Access the application**
    - API Documentation: http://localhost:8000/docs
    - Health Check: http://localhost:8000/health
    - WebSocket: ws://localhost:8000/ws
@@ -39,83 +81,6 @@ The **Matterverse** is a FastAPI-based application that serves as the central hu
 ### Docker Deployment
 
 For containerized deployment, see [Docker Setup Guide](README-Docker.md).
-
-## Configuration
-### Environment Variables
-
-Create a `.env` file in the `config/` directory:
-
-```bash
-# Application Settings
-LOG_LEVEL=INFO
-ENABLE_COLORED_LOGS=true
-
-# Database
-DATABASE_PATH=db/matterverse.db
-
-# Matter/chip-tool
-CHIP_TOOL_PATH=/usr/local/bin/chip-tool
-COMMISSIONING_DIR=commissioning_dir
-PAA_CERT_DIR_PATH=paa-root-certs
-
-# MQTT Broker
-MQTT_BROKER_URL=localhost
-MQTT_BROKER_PORT=1883
-
-# XML Data Models
-DEVICETYPE_XML_FILE=data_model/matter-devices.xml
-CLUSTER_XML_DIR=data_model
-
-# Polling Configuration
-POLLING_INTERVAL=30
-MAX_CONCURRENT_DEVICES=5
-COMMAND_TIMEOUT=30
-AUTO_DISCOVERY_INTERVAL=300
-```
-
-### Data Model Files
-
-The server requires Matter XML data model files:
-
-```bash
-data_model/
-├── matter-devices.xml      # Device type definitions
-└── chip/                   # Cluster definitions
-    ├── access-control-cluster.xml
-    ├── basic-information-cluster.xml
-    └── ... (other cluster files)
-```
-
-## Development
-
-### Project Structure
-
-```
-matterverse/
-├── main.py                          # Application entry point
-├── matterverse_app.py              # Main application class
-├── config.py                       # Configuration management
-├── logger.py                       # Logging setup
-│
-├── api_interface.py                # FastAPI REST endpoints
-├── websocket_interface.py          # WebSocket communication
-│
-├── chip_tool_manager.py            # Matter device management
-├── device_manager.py               # Device state management
-├── data_model_dictionary.py        # XML data model parsing
-│
-├── mqtt_interface.py               # MQTT broker integration
-├── database_manager.py             # SQLite database operations
-│
-├── polling_subscription_manager.py # Modern polling system
-│
-├── requirements.txt                # Python dependencies
-├── Dockerfile                      # Container image
-├── docker-compose.yml              # Container orchestration
-└── README-Docker.md                # Docker documentation
-```
-
-## API Usage
 
 
 ## Docker Support

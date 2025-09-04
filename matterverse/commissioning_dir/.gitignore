@@ -1,3 +1,5 @@
 *.ini
 *.kvs
 *.history
+chip_tool_history
+chip_tool_kvs

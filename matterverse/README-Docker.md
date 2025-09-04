@@ -18,7 +18,7 @@ This document provides instructions for running Matterverse using Docker contain
 
 2. **Configure environment variables**
    ```bash
-   cp config/.docker_env.example /config/.env
+   cp config/.env.docker.example /config/.env
    vim config/.env
    # Edit .env file with your specific configuration
    ```
@@ -33,35 +33,12 @@ The application will be available at:
 - MQTT Broker: localhost:1883
 - MQTT WebSocket: localhost:9001
 
-## Configuration
-
-### Environment Variables
-
-Copy `.env.example` to `.env` and modify the following variables:
-
-```bash
-# Application Configuration
-MATTERVERSE_HOST=0.0.0.0
-MATTERVERSE_PORT=8000
-LOG_LEVEL=INFO
-
-# Database Configuration
-DB_PATH=db/matterverse.db
-
-# MQTT Configuration
-MQTT_BROKER=mqtt
-MQTT_PORT=1883
-
-# Matter/chip-tool Configuration
-CHIP_TOOL_PATH=/opt/chip-tool/chip-tool
-```
-
 ### Volume Mounts
 
 The following directories are mounted as volumes for persistence:
 
 - `./db` - SQLite database storage
-- `./config` - Configuration files
+- `./commissioning_dir` - storage directory used to persist pairing information, certificates, and session data for Matter device management
 
 ## Development Mode
 
