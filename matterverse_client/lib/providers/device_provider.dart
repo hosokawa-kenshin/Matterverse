@@ -145,7 +145,7 @@ class DeviceProvider with ChangeNotifier {
   // Refresh all data
   Future<void> refresh() async {
     _logger.i('Refreshing all data');
-    
+
     try {
       await loadDevices();
     } catch (e) {
@@ -360,12 +360,32 @@ class DeviceProvider with ChangeNotifier {
   }
 
   // Update server URL
-  void updateServerUrl(String newUrl) {
+  Future<void> updateServerUrl(String newUrl) async {
+    _logger.i('Updating server URL to: $newUrl');
+
+    // Update global config
+    ApiConfig.updateBaseUrl(newUrl);
+
+    // Update API client
     _apiClient.updateBaseUrl(newUrl);
-    // Reconnect WebSocket with new URL
-    _webSocketService.disconnect().then((_) {
-      _webSocketService.connect();
-    });
+
+    // Disconnect WebSocket
+    await _webSocketService.disconnect();
+
+    // Clear existing data
+    _devices.clear();
+    _error = null;
+    notifyListeners();
+
+    // Reload data with new URL
+    try {
+      await loadDevices();
+      await connectWebSocket();
+      _logger.i('Successfully reconnected to new server');
+    } catch (e) {
+      _logger.e('Failed to connect to new server: $e');
+      _setError('新しいサーバーへの接続に失敗しました: $e');
+    }
   }
 
   void _setLoading(bool loading) {

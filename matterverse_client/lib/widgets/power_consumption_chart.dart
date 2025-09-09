@@ -12,8 +12,38 @@ class PowerConsumptionChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Validate powerData
     if (powerData.isEmpty) {
       return const SizedBox.shrink();
+    }
+
+    // Filter out invalid data
+    final validPowerData = powerData.where((data) {
+      final powerValue = data.activePowerInWatts;
+      return powerValue.isFinite && !powerValue.isNaN && powerValue >= 0;
+    }).toList();
+
+    if (validPowerData.isEmpty) {
+      return Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Text(
+                '電力使用量（リアルタイム）',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Center(
+                child: Text('有効な電力データがありません'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Card(
@@ -35,7 +65,8 @@ class PowerConsumptionChart extends StatelessWidget {
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
-                  maxY: _getMaxPowerValue() * 1.2,
+                  maxY: _getSafeMaxY(),
+                  minY: 0,
                   barTouchData: BarTouchData(
                     enabled: true,
                     touchTooltipData: BarTouchTooltipData(
@@ -74,7 +105,12 @@ class PowerConsumptionChart extends StatelessWidget {
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
-                          if (index >= 0 && index < powerData.length) {
+                          final validData = powerData.where((data) {
+                            final powerValue = data.activePowerInWatts;
+                            return powerValue.isFinite && !powerValue.isNaN && powerValue >= 0;
+                          }).toList();
+
+                          if (index >= 0 && index < validData.length) {
                             // Show device identifier
                             return Padding(
                               padding: const EdgeInsets.only(top: 8),
@@ -108,7 +144,7 @@ class PowerConsumptionChart extends StatelessWidget {
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
-                    horizontalInterval: _getMaxPowerValue() / 4,
+                    horizontalInterval: _getSafeInterval(),
                     getDrawingHorizontalLine: (value) {
                       return FlLine(
                         color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
@@ -128,10 +164,15 @@ class PowerConsumptionChart extends StatelessWidget {
   }
 
   List<BarChartGroupData> _buildBarGroups(BuildContext context) {
-    return powerData.asMap().entries.map((entry) {
+    final validData = powerData.where((data) {
+      final powerValue = data.activePowerInWatts;
+      return powerValue.isFinite && !powerValue.isNaN && powerValue >= 0;
+    }).toList();
+
+    return validData.asMap().entries.map((entry) {
       final index = entry.key;
       final power = entry.value;
-      
+
       return BarChartGroupData(
         x: index,
         barRods: [
@@ -163,17 +204,41 @@ class PowerConsumptionChart extends StatelessWidget {
 
   double _getMaxPowerValue() {
     if (powerData.isEmpty) return 100;
-    return powerData.map((e) => e.activePowerInWatts).reduce((a, b) => a > b ? a : b);
+
+    final maxValue = powerData
+        .map((e) => e.activePowerInWatts)
+        .where((value) => value.isFinite && !value.isNaN && value >= 0)
+        .fold(0.0, (a, b) => a > b ? a : b);
+
+    // Ensure we have a valid minimum value
+    return maxValue > 0 ? maxValue : 100;
+  }
+
+  double _getSafeMaxY() {
+    final maxValue = _getMaxPowerValue();
+    final result = maxValue * 1.2;
+    return result.isFinite && !result.isNaN && result > 0 ? result : 120;
+  }
+
+  double _getSafeInterval() {
+    final maxValue = _getMaxPowerValue();
+    final interval = maxValue / 4;
+    return interval.isFinite && !interval.isNaN && interval > 0 ? interval : 25;
   }
 
   Widget _buildLegend(BuildContext context) {
+    final validData = powerData.where((data) {
+      final powerValue = data.activePowerInWatts;
+      return powerValue.isFinite && !powerValue.isNaN && powerValue >= 0;
+    }).toList();
+
     return Wrap(
       spacing: 16,
       runSpacing: 8,
-      children: powerData.asMap().entries.map((entry) {
+      children: validData.asMap().entries.map((entry) {
         final index = entry.key;
         final power = entry.value;
-        
+
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -367,7 +367,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _saveServerSettings() {
+  Future<void> _saveServerSettings() async {
     final newUrl = _serverUrlController.text.trim();
     if (newUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -376,12 +376,61 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    // Update API client base URL
-    context.read<DeviceProvider>().updateServerUrl(newUrl);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('サーバー設定を保存しました')),
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('サーバーに再接続中...'),
+          ],
+        ),
+      ),
     );
+
+    try {
+      // Update server URL and reconnect
+      await context.read<DeviceProvider>().updateServerUrl(newUrl);
+
+      // Test connection after saving
+      await _testConnection();
+
+      if (mounted) {
+        context.pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('サーバー設定を保存し、再接続しました'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        context.pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('サーバー設定の更新に失敗しました: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   void _showAboutDialog() {

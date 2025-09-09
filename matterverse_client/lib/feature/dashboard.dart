@@ -146,7 +146,7 @@ class _DashBoardPageState extends State<DashBoardPage> {
     // Determine grid layout based on screen size
     int crossAxisCount;
     double childAspectRatio;
-    
+
     if (MediaQuery.of(context).size.width > 1200) {
       crossAxisCount = 4;
       childAspectRatio = 1.2;
