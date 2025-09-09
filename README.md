@@ -18,7 +18,7 @@ The Matterverse ecosystem consists of several components:
 - **Client Application**: Flutter-based mobile app for system interaction
 - **Matter SDK**: Extended Matter/Thread/Zigbee connectivity solution with industrial-specific device types based on connectedhomeip
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -27,24 +27,81 @@ The Matterverse ecosystem consists of several components:
 - ESP-IDF v4.4.4 (for ESP32 examples)
 - Flutter 3.x (for client app)
 
-### Using Docker (Recommended)
+### Using Pre-built Container Image
+
+If you want to use Matterverse without building from source, create the following directory structure:
+
+```bash
+# Create system directories for Matterverse
+sudo mkdir -p /etc/matterverse/{config,db,commissioning_dir}
+
+# Create configuration file
+sudo tee /etc/matterverse/config/.env << 'EOF'
+# Matterverse Configuration
+CHIP_TOOL_PATH=/usr/local/bin/chip-tool
+COMMISSIONING_DIR=/app/commissioning_dir
+DATABASE_PATH=/app/db/matterverse.db
+DEVICETYPE_XML_FILE=/app/data_model/matter-devices.xml
+CLUSTER_XML_DIR=/app/data_model
+PAA_CERT_DIR_PATH=/app/paa-root-certs
+MQTT_BROKER_URL=mqtt://example.com # Update with your MQTT broker
+MQTT_BROKER_PORT=1883
+EOF
+
+# Set proper permissions
+sudo chown -R {DockerUID}:{DockerUID} /etc/matterverse # for Docker
+
+# Create docker-compose.yml
+cat > docker-compose.yml << 'EOF'
+services:
+  matterverse:
+    image: kenshinhosokawa/matterverse:latest
+    container_name: matterverse-app
+    restart: unless-stopped
+    volumes:
+      - /etc/matterverse/db:/app/db
+      - /etc/matterverse/commissioning_dir:/app/commissioning_dir
+      - /etc/matterverse/config:/app/config:ro
+    network_mode: host
+EOF
+
+# Start Matterverse
+docker-compose up -d
+```
+
+**Container Image**: [`kenshinhosokawa/matterverse:latest`](https://hub.docker.com/r/kenshinhosokawa/matterverse)
+
+Access the application at:
+- API Documentation: http://localhost:8000/docs
+- Health Check: http://localhost:8000/health
+
+### Using Docker (Build from Source)
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/hosokawa-kenshin/Matterverse.git
    cd Matterverse
    ```
+
 2. **Configure environment variables**
    ```bash
    cd matterverse
-   cp config/.env.docker.example /config/.env
-   vim config/.env
+   sudo mkdir /etc/matterverse
+   sudo cp -r config /etc/matterverse/
+   sudo cp -r commissioning_dir /etc/matterverse/
+   sudo cp -r db /etc/matterverse/
+
+   sudo cp config/.env.docker.example /etc/matterverse/config/.env
+   sudo vim /etc/matterverse/config/.env
    # Edit .env file with your specific configuration
    MQTT_BROKER_URL=mqtt://example.com  # Update with your MQTT broker
+   sudo chown -R {DockerUID}:{DockerUID} /etc/matterverse # for Docker
+   ```
 
 2. **Start with Docker Compose**
    ```bash
-   docker-compose up --build
+   docker compose up --build
    ```
 
 3. **Access the application**
@@ -187,7 +244,16 @@ Flutter-based application for:
 - `POST /device/{node_id}/command` - Send commands to devices
 - `WebSocket /ws` - Real-time device updates
 
-## Docker Support
+## 🐳 Docker Support
+
+### Pre-built Images
+
+Matterverse is available as a ready-to-use Docker image:
+
+- **Docker Hub**: [`kenshinhosokawa/matterverse:latest`](https://hub.docker.com/r/kenshinhosokawa/matterverse)
+- **Image Digest**: `sha256:f299f896c209784570d60167fe50cf368c73ac2ffcfd5d5cc1225bba9862781a`
+
+### Container Features
 
 Full Docker containerization with:
 - Multi-stage builds for optimized images

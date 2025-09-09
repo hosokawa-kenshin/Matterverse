@@ -6,6 +6,7 @@ services:
     container_name: matterverse-app
     restart: unless-stopped
     volumes:
-      - ./db:/app/db
-      - ./commissioning_dir:/app/commissioning_dir
+      - /etc/matterverse/db:/app/db
+      - /etc/matterverse/commissioning_dir:/app/commissioning_dir
+      - /etc/matterverse/config:/app/config:ro
     network_mode: host
