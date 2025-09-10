@@ -3,15 +3,24 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import '../models/device_model.dart';
+import 'settings_service.dart';
 
 class ApiConfig {
-  static String baseUrl = 'http://localhost:8000'; // Default value, should be configurable
+  static String baseUrl = 'http://localhost:8000'; // Default value, will be loaded from settings
   static const Duration connectTimeout = Duration(seconds: 30);
   static const Duration receiveTimeout = Duration(seconds: 30);
 
-  // Update base URL
-  static void updateBaseUrl(String newUrl) {
+  // Initialize with saved settings
+  static Future<void> initialize() async {
+    final settingsService = await SettingsService.getInstance();
+    baseUrl = await settingsService.getServerUrl();
+  }
+
+  // Update base URL and save to preferences
+  static Future<void> updateBaseUrl(String newUrl) async {
     baseUrl = newUrl;
+    final settingsService = await SettingsService.getInstance();
+    await settingsService.setServerUrl(newUrl);
   }
 
   // API endpoints

@@ -9,6 +9,7 @@ import '../providers/device_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_client.dart';
 import '../services/websocket_service.dart';
+import '../services/settings_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -21,11 +22,33 @@ class _SettingsPageState extends State<SettingsPage> {
   final _serverUrlController = TextEditingController();
   bool _isTestingConnection = false;
   String? _connectionTestResult;
+  bool _isLoadingSettings = true;
 
   @override
   void initState() {
     super.initState();
-    _serverUrlController.text = ApiConfig.baseUrl;
+    _loadSavedSettings();
+  }
+
+  Future<void> _loadSavedSettings() async {
+    try {
+      final settingsService = await SettingsService.getInstance();
+      final savedServerUrl = await settingsService.getServerUrl();
+
+      if (mounted) {
+        setState(() {
+          _serverUrlController.text = savedServerUrl;
+          _isLoadingSettings = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _serverUrlController.text = ApiConfig.baseUrl;
+          _isLoadingSettings = false;
+        });
+      }
+    }
   }
 
   @override
@@ -92,9 +115,17 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const Gap(16),
 
-            // Server URL input
-            TextField(
-              controller: _serverUrlController,
+            if (_isLoadingSettings)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else ...[
+              // Server URL input
+              TextField(
+                controller: _serverUrlController,
               decoration: InputDecoration(
                 labelText: 'サーバーURL',
                 hintText: 'http://localhost:8080',
@@ -143,15 +174,27 @@ class _SettingsPageState extends State<SettingsPage> {
               const Gap(12),
             ],
 
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _saveServerSettings,
-                icon: const Icon(Icons.save),
-                label: const Text('設定を保存'),
-              ),
+            // Buttons row
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _saveServerSettings,
+                    icon: const Icon(Icons.save),
+                    label: const Text('設定を保存'),
+                  ),
+                ),
+                const Gap(12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _resetServerSettings,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('リセット'),
+                  ),
+                ),
+              ],
             ),
+            ], // Close the else block
           ],
         ),
       ),
@@ -429,6 +472,62 @@ class _SettingsPageState extends State<SettingsPage> {
             duration: const Duration(seconds: 5),
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _resetServerSettings() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('設定をリセット'),
+        content: const Text('サーバー設定をデフォルト値にリセットしますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => context.pop(false),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => context.pop(true),
+            child: const Text('リセット'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final settingsService = await SettingsService.getInstance();
+        await settingsService.resetToDefaults();
+
+        if (mounted) {
+          setState(() {
+            _serverUrlController.text = 'http://localhost:8000';
+            _connectionTestResult = null;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.refresh, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('設定をデフォルト値にリセットしました'),
+                ],
+              ),
+              backgroundColor: Colors.blue,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('設定のリセットに失敗しました: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }

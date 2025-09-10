@@ -363,8 +363,8 @@ class DeviceProvider with ChangeNotifier {
   Future<void> updateServerUrl(String newUrl) async {
     _logger.i('Updating server URL to: $newUrl');
 
-    // Update global config
-    ApiConfig.updateBaseUrl(newUrl);
+    // Update global config and save to preferences
+    await ApiConfig.updateBaseUrl(newUrl);
 
     // Update API client
     _apiClient.updateBaseUrl(newUrl);
@@ -386,9 +386,7 @@ class DeviceProvider with ChangeNotifier {
       _logger.e('Failed to connect to new server: $e');
       _setError('新しいサーバーへの接続に失敗しました: $e');
     }
-  }
-
-  void _setLoading(bool loading) {
+  }  void _setLoading(bool loading) {
     if (_isLoading != loading) {
       _isLoading = loading;
       notifyListeners();

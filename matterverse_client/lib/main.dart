@@ -9,14 +9,21 @@ import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'providers/device_provider.dart';
 import 'providers/auth_provider.dart';
+import 'services/api_client.dart';
 
-void main() {
+void main() async {
   // ハッシュルーティングを無効化してクリーンなURLを使用
   if (kIsWeb) {
     usePathUrlStrategy();
   }
 
-  runApp(MyApp());
+  // Ensure Flutter binding is initialized
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize API configuration with saved settings
+  await ApiConfig.initialize();
+
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
