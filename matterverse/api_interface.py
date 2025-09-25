@@ -54,7 +54,7 @@ class DeviceNameRequest(BaseModel):
 class APIInterface:
     """API interface for REST endpoints."""
 
-    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model):
+    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model, mqtt):
         """
         Initialize API interface.
 
@@ -68,6 +68,7 @@ class APIInterface:
         self.websocket = websocket_interface
         self.chip_tool = chip_tool_manager
         self.data_model = data_model
+        self.mqtt = mqtt
         self.logger = get_api_logger()
 
         self.app = FastAPI(title="Matterverse API", version="1.0.0")
@@ -226,6 +227,7 @@ class APIInterface:
                 if request and request.manual_pairing_code:
                    response = await self.device_manager.commissioning_device(request.manual_pairing_code)
                 if response:
+                    self.mqtt.publish_homie_devices()
                     return {"status": "success", "devices": response}
                 else:
                     return {"status": "error", "detail": "No devices commissioned"}

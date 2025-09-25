@@ -120,7 +120,8 @@ class MatterverseApplication:
                 self.device_manager,
                 self.websocket,
                 self.chip_tool,
-                self.data_model
+                self.data_model,
+                self.mqtt
             )
 
             # Setup callbacks

@@ -44,11 +44,13 @@
 
 #include "CommissionableInit.h"
 #include "Device.h"
+#include "MQTTClient.h"
 #include "main.h"
 #include <app/server/Server.h>
 
 #include <cassert>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -77,6 +79,9 @@ std::vector<Action *> gActions;
 const int16_t minMeasuredValue     = -27315;
 const int16_t maxMeasuredValue     = 32766;
 const int16_t initialMeasuredValue = 100;
+
+// MQTT Client instance
+std::unique_ptr<mqtt::MQTTClient> gMQTTClient;
 
 // ENDPOINT DEFINITIONS:
 // =================================================================================
@@ -662,6 +667,53 @@ public:
 
 BridgedPowerSourceAttrAccess gPowerAttrAccess;
 
+// MQTT message handler
+void OnMQTTMessage(const std::string & topic, const std::string & payload)
+{
+    ChipLogProgress(DeviceLayer, "MQTT Message - Topic: %s, Payload: %s", topic.c_str(), payload.c_str());
+
+    // Message processing is now handled automatically by MQTTClient::ProcessHomieMessage()
+    // The data is stored in SQLite database within the MQTT client
+
+    // Optionally log database statistics periodically
+    static int message_count = 0;
+    message_count++;
+
+    if (message_count % 50 == 0 && gMQTTClient)
+    {
+        // Every 50 messages, log the number of devices in database
+        auto devices = gMQTTClient->GetAllDevices();
+        ChipLogProgress(DeviceLayer, "Database contains %zu Matter devices after %d messages", devices.size(), message_count);
+
+        // Log some device details
+        for (const auto & device : devices)
+        {
+            ChipLogProgress(DeviceLayer, "Device: %s (Name: %s, State: %s)", device.topic_id.c_str(), device.device_name.c_str(),
+                            device.state.c_str());
+        }
+    }
+}
+
+// MQTT connection handler
+void OnMQTTConnection(bool connected)
+{
+    if (connected)
+    {
+        ChipLogProgress(DeviceLayer, "MQTT Client connected successfully");
+
+        // Subscribe to Homie protocol topics
+        if (gMQTTClient)
+        {
+            gMQTTClient->Subscribe("homie/#", 0);
+            ChipLogProgress(DeviceLayer, "Subscribed to homie/# topics");
+        }
+    }
+    else
+    {
+        ChipLogProgress(DeviceLayer, "MQTT Client disconnected");
+    }
+}
+
 Protocols::InteractionModel::Status emberAfExternalAttributeWriteCallback(EndpointId endpoint, ClusterId clusterId,
                                                                           const EmberAfAttributeMetadata * attributeMetadata,
                                                                           uint8_t * buffer)
@@ -1012,9 +1064,55 @@ void ApplicationInit()
     }
 
     AttributeAccessInterfaceRegistry::Instance().Register(&gPowerAttrAccess);
+
+    // Initialize MQTT Client
+    ChipLogProgress(DeviceLayer, "Initializing MQTT Client...");
+    mqtt::MQTTClient::Config mqttConfig;
+    mqttConfig.broker_host   = "localhost"; // TODO: Make this configurable
+    mqttConfig.broker_port   = 1883;
+    mqttConfig.client_id     = "matter_bridge_mqtt";
+    mqttConfig.database_path = "matter_devices.db"; // SQLite database path
+
+    gMQTTClient = std::make_unique<mqtt::MQTTClient>(mqttConfig);
+    gMQTTClient->SetMessageCallback(OnMQTTMessage);
+    gMQTTClient->SetConnectionCallback(OnMQTTConnection);
+
+    // Start MQTT client
+    if (gMQTTClient->Connect())
+    {
+        gMQTTClient->StartAsync();
+        ChipLogProgress(DeviceLayer, "MQTT Client started successfully");
+    }
+    else
+    {
+        ChipLogError(DeviceLayer, "Failed to start MQTT Client");
+    }
 }
 
-void ApplicationShutdown() {}
+void ApplicationShutdown()
+{
+    // Cleanup MQTT Client
+    if (gMQTTClient)
+    {
+        ChipLogProgress(DeviceLayer, "Shutting down MQTT Client...");
+
+        // Display final database statistics
+        auto devices = gMQTTClient->GetAllDevices();
+        ChipLogProgress(DeviceLayer, "Final database statistics: %zu Matter devices stored", devices.size());
+
+        for (const auto & device : devices)
+        {
+            ChipLogProgress(DeviceLayer, "Stored Device: ID=%s, Name=%s, State=%s, Homie=%s, Nodes=%s", device.topic_id.c_str(),
+                            device.device_name.c_str(), device.state.c_str(), device.homie_version.c_str(), device.nodes.c_str());
+        }
+
+        gMQTTClient->Disconnect();
+        gMQTTClient->StopAsync();
+        gMQTTClient.reset();
+
+        ChipLogProgress(DeviceLayer, "MQTT Client and database connections closed");
+    }
+}
 
 int main(int argc, char * argv[])
 {

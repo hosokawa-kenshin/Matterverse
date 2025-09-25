@@ -183,6 +183,7 @@ class MQTTInterface:
             cluster_nm = cluster.get("name", "").lower().replace("/", "").replace(" ", "")
             cluster_names.append(cluster_nm)
 
+        self.logger.debug(f"Publishing clusters for device {topic_id}: {cluster_names}")
         self.client.publish(f"{base}/$nodes", ",".join(cluster_names), retain=True)
 
         # Publish cluster information
