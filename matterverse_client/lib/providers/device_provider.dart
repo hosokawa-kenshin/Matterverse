@@ -208,6 +208,35 @@ class DeviceProvider with ChangeNotifier {
   Future<CommandResponse> identifyDevice(Device device) =>
       _apiClient.identifyDevice(device);
 
+  Future<bool> removeDevice(Device device) async {
+    try {
+      _logger.i('Removing device: ${device.node}:${device.endpoint}');
+
+      final success = await _apiClient.removeDevice(device.node, device.endpoint);
+
+      if (success) {
+        // Remove device from local list
+        _devices.removeWhere(
+          (d) => d.node == device.node && d.endpoint == device.endpoint,
+        );
+        notifyListeners();
+        _logger.i('Device removed successfully');
+      } else {
+        _logger.w('Failed to remove device from server');
+      }
+
+      return success;
+    } catch (e) {
+      _logger.e('Error removing device: $e');
+      rethrow;
+    }
+  }
+
+  // Forget device (alias for removeDevice)
+  Future<bool> forgetDevice(Device device) async {
+    return removeDevice(device);
+  }
+
   // Update device name
   Future<bool> updateDeviceName(Device device, String newName) async {
     try {

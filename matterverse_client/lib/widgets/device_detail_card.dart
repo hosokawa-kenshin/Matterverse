@@ -69,10 +69,91 @@ class DeviceDetailCard extends StatelessWidget {
                 // Clusters
                 ...device.clusters
                     .map((cluster) => _buildClusterSection(context, cluster)),
+                _buildForgetButton(context),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildForgetButton(BuildContext context) {
+    return Center(
+      child: OutlinedButton(
+        child: const Text('デバイスを削除'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          side: const BorderSide(
+            color: Colors.red,
+            width: 1,
+          ),
+        ),
+        onPressed: () async {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('デバイスの削除'),
+              content: const Text('本当にこのデバイスを削除しますか？'),
+              actions: [
+                Center(child:
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('キャンセル'),
+                  ),
+                  const Gap(8),
+                  OutlinedButton(
+                    child: const Text('削除'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      side: const BorderSide(
+                        color: Colors.red,
+                        width: 1,
+                      ),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(true),
+                  ),
+                  ]
+                )
+                )
+              ],
+            ),
+          );
+          if (confirm == true) {
+            final deviceProvider = context.read<DeviceProvider>();
+            final success = await deviceProvider.removeDevice(device);
+
+            if (success) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('デバイスを削除しました'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+                context.pop();
+              }
+            } else {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('デバイスの削除に失敗しました'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          }
+        },
       ),
     );
   }
@@ -218,7 +299,7 @@ class DeviceDetailCard extends StatelessWidget {
                   // Attributes section
                   if (cluster.attributes.isNotEmpty) ...[
                     Text(
-                      '属性',
+                      'Attribute',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: Theme.of(context).colorScheme.primary,
@@ -233,7 +314,7 @@ class DeviceDetailCard extends StatelessWidget {
                   // Commands section
                   if (cluster.commands.isNotEmpty) ...[
                     Text(
-                      'コマンド',
+                      'Command',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: Theme.of(context).colorScheme.secondary,

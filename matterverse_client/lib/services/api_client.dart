@@ -229,6 +229,8 @@ class ApiClient {
     }
   }
 
+
+
   String _getDioErrorMessage(DioException e) {
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
@@ -314,5 +316,22 @@ extension DeviceCommands on ApiClient {
       'Identify',
       args: {'IdentifyTime': seconds},
     );
+  }
+
+  // Remove device from network
+  Future<bool> removeDevice(int nodeId, int endpointId) async {
+    try {
+      final response = await _dio.delete(ApiConfig.deviceEndpoint + '/$nodeId/$endpointId');
+
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        print('Failed to remove device: ${response}');
+        return false;
+      }
+    } catch (e) {
+      print('Error removing device: $e');
+      return false;
+    }
   }
 }
