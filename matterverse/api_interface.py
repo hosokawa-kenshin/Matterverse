@@ -723,23 +723,13 @@ class APIInterface:
 
     def _get_cluster_name_by_id(self, cluster_id: int) -> Optional[str]:
         """Get cluster name by cluster ID."""
-        cluster_map = {
-            6: "On/Off",
-            8: "LevelControl",
-            3: "Identify",
-            29: "Descriptor",
-            40: "BasicInformation"
-        }
-        return cluster_map.get(cluster_id)
+        cluster_name = self.data_model.get_cluster_name_by_id(f"0x{int(cluster_id):04x}")
+        return cluster_name
 
     def _get_attribute_name_by_id(self, cluster_id: int, attribute_id: int) -> Optional[str]:
         """Get attribute name by cluster and attribute ID."""
-        attribute_map = {
-            6: {0: "OnOff"},  # On/Off cluster
-            8: {0: "CurrentLevel"},  # Level Control cluster
-            3: {0: "IdentifyTime", 1: "IdentifyType"},  # Identify cluster
-        }
-        return attribute_map.get(cluster_id, {}).get(attribute_id)
+        attribute_name = self.data_model.get_attribute_name_by_code(f"0x{int(cluster_id):04x}", f"0x{int(attribute_id):04x}")
+        return attribute_name
 
     def _filter_devices(self, devices: List[Dict[str, Any]], node: Optional[int],
                        endpoint: Optional[int], device_type: Optional[str], name: Optional[str],
