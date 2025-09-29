@@ -228,6 +228,7 @@ class APIInterface:
                    response = await self.device_manager.commissioning_device(request.manual_pairing_code)
                 if response:
                     self.mqtt.publish_homie_devices()
+                    await self.websocket.broadcast_device_addition(response)
                     return {"status": "success", "devices": response}
                 else:
                     return {"status": "error", "detail": "No devices commissioned"}
@@ -550,6 +551,7 @@ class APIInterface:
             try:
                 success = self.device_manager.delete_device(node_id, endpoint)
                 if success:
+                    await self.websocket.broadcast_device_deletion(node_id, endpoint)
                     return {"status": "success", "message": "Device deleted successfully"}
                 else:
                     raise HTTPException(status_code=400, detail="Device deletion failed")

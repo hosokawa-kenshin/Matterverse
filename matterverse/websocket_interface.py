@@ -241,6 +241,55 @@ class WebSocketInterface:
 
         return await self.broadcast_to_all_clients(data)
 
+    async def broadcast_device_addition(self, devices: list[dict[str, Any]]) -> int:
+        """
+        Broadcast device addition event to all connected clients.
+
+        Args:
+            device_info: Information about the added device
+
+        Returns:
+            Number of clients that received the message
+        """
+
+        for device in devices:
+            data = {
+                "type": "register_report",
+                "device": {
+                    "node_id": device.get("node"),
+                    "endpoint": device.get("endpoint"),
+                },
+                "data": {
+                    "device_type": device.get("device_type"),
+                    "topic_id": device.get("topic_id"),
+                },
+            }
+            await self.broadcast_to_all_clients(data)
+
+        return self.connected_clients_count
+
+    async def broadcast_device_deletion(self, node_id: int, endpoint: int) -> int:
+        """
+        Broadcast device deletion event to all connected clients.
+
+        Args:
+            node_id: Node ID of the deleted device
+            endpoint: Endpoint of the deleted device
+
+        Returns:
+            Number of clients that received the message
+        """
+        data = {
+            "type": "delete_report",
+            "device": {
+                "node_id": node_id,
+                "endpoint": endpoint
+            },
+            "data":{},
+        }
+
+        return await self.broadcast_to_all_clients(data)
+
     async def cleanup(self):
         """Cleanup all WebSocket connections."""
         async with self._connection_lock:
