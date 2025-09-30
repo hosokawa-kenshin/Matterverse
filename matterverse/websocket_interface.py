@@ -256,7 +256,7 @@ class WebSocketInterface:
             data = {
                 "type": "register_report",
                 "device": {
-                    "node_id": device.get("node"),
+                    "node": device.get("node"),
                     "endpoint": device.get("endpoint"),
                 },
                 "data": {
@@ -282,7 +282,7 @@ class WebSocketInterface:
         data = {
             "type": "delete_report",
             "device": {
-                "node_id": node_id,
+                "node": node_id,
                 "endpoint": endpoint
             },
             "data":{},
