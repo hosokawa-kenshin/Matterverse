@@ -478,6 +478,8 @@ abstract class WebSocketMessage {
         return StatusReport.fromJson(json);
       case 'register_report':
         return RegisterReport.fromJson(json);
+      case 'delete_report':
+        return DeleteReport.fromJson(json);
       default:
         throw ArgumentError('Unknown WebSocket message type: $type');
     }
@@ -530,6 +532,28 @@ class RegisterReport extends WebSocketMessage {
   @override
   String toString() {
     return 'RegisterReport(node: $node, endpoint: $endpoint, deviceType: $deviceType, topicId: $topicId)';
+  }
+}
+
+class DeleteReport extends WebSocketMessage {
+  DeleteReport({
+    required Map<String, dynamic> device,
+    required Map<String, dynamic> data,
+  }) : super(type: 'delete_report', device: device, data: data);
+
+  factory DeleteReport.fromJson(Map<String, dynamic> json) {
+    return DeleteReport(
+      device: json['device'] as Map<String, dynamic>,
+      data: json['data'] as Map<String, dynamic>,
+    );
+  }
+
+  int get node => device['node'] as int;
+  int get endpoint => device['endpoint'] as int;
+
+  @override
+  String toString() {
+    return 'DeleteReport(node: $node, endpoint: $endpoint)';
   }
 }
 

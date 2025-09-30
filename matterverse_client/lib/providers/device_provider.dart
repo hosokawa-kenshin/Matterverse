@@ -21,6 +21,7 @@ class DeviceProvider with ChangeNotifier {
   // Stream subscriptions
   StreamSubscription<StatusReport>? _statusReportSubscription;
   StreamSubscription<RegisterReport>? _registerReportSubscription;
+  StreamSubscription<DeleteReport>? _deleteReportSubscription;
   StreamSubscription<WebSocketConnectionState>? _connectionStateSubscription;
 
   // Getters
@@ -67,6 +68,12 @@ class DeviceProvider with ChangeNotifier {
     _registerReportSubscription = _webSocketService.registerReports.listen(
       _handleRegisterReport,
       onError: (error) => _logger.e('Register report stream error: $error'),
+    );
+
+    // Listen to delete reports (device removals)
+    _deleteReportSubscription = _webSocketService.deleteReports.listen(
+      _handleDeleteReport,
+      onError: (error) => _logger.e('Delete report stream error: $error'),
     );
 
     // Listen to connection state changes
@@ -353,6 +360,26 @@ class DeviceProvider with ChangeNotifier {
     }
   }
 
+  // Handle WebSocket delete reports
+  void _handleDeleteReport(DeleteReport report) {
+    _logger.i('Processing delete report for device: ${report.node}:${report.endpoint}');
+
+    // Remove device from local list if it exists
+    final existingDeviceIndex = _devices.indexWhere(
+      (device) => device.node == report.node && device.endpoint == report.endpoint,
+    );
+
+    if (existingDeviceIndex != -1) {
+      _devices.removeAt(existingDeviceIndex);
+      notifyListeners();
+      _logger.i('Device removed from local list: ${report.node}:${report.endpoint}');
+    } else {
+      // Device not found in local list, refresh the entire list to sync with server
+      _logger.w('Device to delete not found in local list, refreshing devices');
+      loadDevices();
+    }
+  }
+
   // Get device by node and endpoint
   Device? getDevice(int node, int endpoint) {
     try {
@@ -439,6 +466,7 @@ class DeviceProvider with ChangeNotifier {
     _logger.i('Disposing DeviceProvider');
     _statusReportSubscription?.cancel();
     _registerReportSubscription?.cancel();
+    _deleteReportSubscription?.cancel();
     _connectionStateSubscription?.cancel();
     _webSocketService.dispose();
     _apiClient.dispose();

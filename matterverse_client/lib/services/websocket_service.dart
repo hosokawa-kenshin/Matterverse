@@ -22,6 +22,7 @@ class WebSocketService {
   // Stream controllers for broadcasting messages
   final _statusReportController = StreamController<StatusReport>.broadcast();
   final _registerReportController = StreamController<RegisterReport>.broadcast();
+  final _deleteReportController = StreamController<DeleteReport>.broadcast();
   final _connectionStateController = StreamController<WebSocketConnectionState>.broadcast();
 
   // Reconnection parameters
@@ -34,6 +35,7 @@ class WebSocketService {
   // Public streams
   Stream<StatusReport> get statusReports => _statusReportController.stream;
   Stream<RegisterReport> get registerReports => _registerReportController.stream;
+  Stream<DeleteReport> get deleteReports => _deleteReportController.stream;
   Stream<WebSocketConnectionState> get connectionState => _connectionStateController.stream;
 
   WebSocketConnectionState get currentConnectionState => _connectionState;
@@ -95,6 +97,9 @@ class WebSocketService {
       } else if (wsMessage is RegisterReport) {
         _registerReportController.add(wsMessage);
         _logger.i('New device registered: ${wsMessage.deviceType} (${wsMessage.node}:${wsMessage.endpoint})');
+      } else if (wsMessage is DeleteReport) {
+        _deleteReportController.add(wsMessage);
+        _logger.d('Received delete report message');
       }
     } catch (e) {
       _logger.e('Error parsing WebSocket message: $e');
