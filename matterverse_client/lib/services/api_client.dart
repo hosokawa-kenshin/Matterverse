@@ -334,4 +334,29 @@ extension DeviceCommands on ApiClient {
       return false;
     }
   }
+
+  // Add new device using manual pairing code
+  Future<bool> addDevice(String manualPairingCode) async {
+    try {
+      _logger.i('Sending POST request to add device with manual pairing code: $manualPairingCode');
+
+      final response = await _dio.post(
+        ApiConfig.deviceEndpoint,
+        data: {
+          'manual_pairing_code': manualPairingCode,
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _logger.i('Device added successfully');
+        return true;
+      } else {
+        _logger.w('Failed to add device: HTTP ${response.statusCode} - ${response.data}');
+        return false;
+      }
+    } catch (e) {
+      _logger.e('Error adding device: $e');
+      return false;
+    }
+  }
 }

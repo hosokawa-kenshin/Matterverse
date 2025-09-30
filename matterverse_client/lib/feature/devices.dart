@@ -26,52 +26,59 @@ class _DevicesPageState extends State<DevicesPage> {
       builder: (context, deviceProvider, child) {
         final filteredDevices = _filterDevices(deviceProvider.devices);
 
-        return ContentView(
-          child: RefreshIndicator(
-            onRefresh: () => deviceProvider.refresh(),
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header with connection status
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: PageHeader(
-                          title: 'デバイス管理',
-                          description: 'デバイスの詳細制御と監視',
+        return Scaffold(
+          body: ContentView(
+            child: RefreshIndicator(
+              onRefresh: () => deviceProvider.refresh(),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header with connection status
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: PageHeader(
+                            title: 'デバイス管理',
+                            description: 'デバイスの詳細制御と監視',
+                          ),
                         ),
-                      ),
-                      ConnectionStatusIndicator(
-                        connectionState: deviceProvider.connectionState,
-                      ),
-                    ],
-                  ),
-                  const Gap(24),
-
-                  // Search and filter controls
-                  _buildSearchAndFilters(deviceProvider),
-                  const Gap(24),
-
-                  // Device statistics
-                  _buildDeviceStatistics(deviceProvider),
-                  const Gap(24),
-
-                  // Device list
-                  _buildDeviceList(filteredDevices, deviceProvider),
-
-                  // Error handling
-                  if (deviceProvider.error != null) ...[
+                        ConnectionStatusIndicator(
+                          connectionState: deviceProvider.connectionState,
+                        ),
+                      ],
+                    ),
                     const Gap(24),
-                    _buildErrorCard(deviceProvider.error!),
-                  ],
 
-                  // Add some bottom padding for better scrolling
-                  const Gap(32),
-                ],
+                    // Search and filter controls
+                    _buildSearchAndFilters(deviceProvider),
+                    const Gap(24),
+
+                    // Device statistics
+                    _buildDeviceStatistics(deviceProvider),
+                    const Gap(24),
+
+                    // Device list
+                    _buildDeviceList(filteredDevices, deviceProvider),
+
+                    // Error handling
+                    if (deviceProvider.error != null) ...[
+                      const Gap(24),
+                      _buildErrorCard(deviceProvider.error!),
+                    ],
+
+                    // Add some bottom padding for better scrolling
+                    const Gap(32),
+                  ],
+                ),
               ),
             ),
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => _showAddDeviceDialog(context, deviceProvider),
+            tooltip: 'デバイスを追加',
+            child: const Icon(Icons.add),
           ),
         );
       },
@@ -155,7 +162,6 @@ class _DevicesPageState extends State<DevicesPage> {
       return _buildEmptyState();
     }
 
-    // 常に縦並びのリストレイアウトを使用（展開時のoverflowを防ぐため）
     return _buildListLayout(devices, deviceProvider);
   }
 
@@ -323,6 +329,122 @@ class _DevicesPageState extends State<DevicesPage> {
         duration: const Duration(seconds: 4),
       ),
     );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showAddDeviceDialog(BuildContext context, DeviceProvider deviceProvider) {
+    final pairingCodeController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        bool isLoading = false;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('デバイスの追加'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('マニュアルペアリングコードを入力してください'),
+                  const Gap(16),
+                  TextField(
+                    controller: pairingCodeController,
+                    decoration: InputDecoration(
+                      labelText: 'マニュアルペアリングコード(11桁)',
+                      hintText: '例: 34970112332',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      prefixIcon: const Icon(Icons.qr_code),
+                    ),
+                    keyboardType: TextInputType.number,
+                    enabled: !isLoading,
+                  ),
+                  if (isLoading) ...[
+                    const Gap(16),
+                    const Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        Gap(12),
+                        Text('デバイスを追加中...'),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLoading ? null : () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          await _addDevice(
+                            context,
+                            deviceProvider,
+                            pairingCodeController.text.trim(),
+                            () => setState(() => isLoading = true),
+                            () => setState(() => isLoading = false),
+                          );
+                        },
+                  child: const Text('追加'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _addDevice(
+    BuildContext context,
+    DeviceProvider deviceProvider,
+    String pairingCode,
+    VoidCallback setLoadingTrue,
+    VoidCallback setLoadingFalse,
+  ) async {
+    if (pairingCode.isEmpty) {
+      _showErrorSnackBar('ペアリングコードを入力してください');
+      return;
+    }
+
+    setLoadingTrue();
+
+    try {
+      final success = await deviceProvider.addDevice(pairingCode);
+
+      if (success) {
+        Navigator.of(context).pop();
+        _showSuccessSnackBar('デバイスが正常に追加されました');
+        // デバイスリストを更新
+        await deviceProvider.refresh();
+      } else {
+        _showErrorSnackBar('デバイスの追加に失敗しました');
+      }
+    } catch (e) {
+      _showErrorSnackBar('エラーが発生しました: $e');
+    } finally {
+      setLoadingFalse();
+    }
   }
 
   DeviceProvider get deviceProvider => context.read<DeviceProvider>();

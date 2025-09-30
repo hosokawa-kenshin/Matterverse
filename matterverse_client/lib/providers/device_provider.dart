@@ -170,6 +170,35 @@ class DeviceProvider with ChangeNotifier {
     }
   }
 
+  // Add new device using manual pairing code
+  Future<bool> addDevice(String manualPairingCode) async {
+    _logger.i('Adding device with manual pairing code: $manualPairingCode');
+
+    try {
+      _setLoading(true);
+      _clearError();
+
+      final success = await _apiClient.addDevice(manualPairingCode);
+
+      if (success) {
+        _logger.i('Device added successfully, refreshing device list');
+        // Refresh the device list to include the new device
+        await loadDevices();
+      } else {
+        _logger.w('Failed to add device');
+        _setError('デバイスの追加に失敗しました');
+      }
+
+      return success;
+    } catch (e) {
+      _logger.e('Error adding device: $e');
+      _setError('デバイス追加エラー: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   // Execute device command
   Future<CommandResponse> executeDeviceCommand(
     Device device,
