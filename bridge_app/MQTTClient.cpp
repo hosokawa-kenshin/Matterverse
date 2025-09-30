@@ -314,7 +314,7 @@ void MQTTClient::OnMessage(struct mosquitto * mosq, void * userdata, const struc
         std::string topic(message->topic);
         std::string payload(static_cast<const char *>(message->payload), static_cast<size_t>(message->payloadlen));
 
-        ChipLogProgress(DeviceLayer, "MQTT message received - Topic: %s, Payload: %s", topic.c_str(), payload.c_str());
+        // ChipLogProgress(DeviceLayer, "MQTT message received - Topic: %s, Payload: %s", topic.c_str(), payload.c_str());
 
         // Process Homie message and store to database
         client->ProcessHomieMessage(topic, payload);
@@ -464,13 +464,13 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_bind_text(insert_stmt, 1, msg.device_id.c_str(), -1, SQLITE_STATIC);
             int rc = sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
-            
+
             if (rc != SQLITE_DONE)
             {
                 ChipLogError(DeviceLayer, "Failed to insert device record for $homie: %s", sqlite3_errmsg(m_db));
             }
         }
-        
+
         // Now update the homie version
         const char * update_sql = R"(
             UPDATE devices SET homie_version = ?, updated_at = CURRENT_TIMESTAMP
@@ -483,7 +483,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_bind_text(update_stmt, 2, msg.device_id.c_str(), -1, SQLITE_STATIC);
             int rc = sqlite3_step(update_stmt);
             sqlite3_finalize(update_stmt);
-            
+
             if (rc != SQLITE_DONE)
             {
                 ChipLogError(DeviceLayer, "Failed to update homie version: %s", sqlite3_errmsg(m_db));
@@ -510,7 +510,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
                 sqlite3_step(insert_stmt);
                 sqlite3_finalize(insert_stmt);
             }
-            
+
             // Now update the device name
             const char * update_sql = R"(
                 UPDATE devices SET device_name = ?, updated_at = CURRENT_TIMESTAMP
@@ -523,7 +523,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
                 sqlite3_bind_text(update_stmt, 2, msg.device_id.c_str(), -1, SQLITE_STATIC);
                 int rc = sqlite3_step(update_stmt);
                 sqlite3_finalize(update_stmt);
-                
+
                 if (rc == SQLITE_DONE)
                 {
                     ChipLogProgress(DeviceLayer, "Updated device name for %s: %s", msg.device_id.c_str(), payload.c_str());
@@ -544,10 +544,11 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
                 sqlite3_bind_text(stmt, 2, msg.cluster_name.c_str(), -1, SQLITE_STATIC);
                 int rc = sqlite3_step(stmt);
                 sqlite3_finalize(stmt);
-                
+
                 if (rc == SQLITE_DONE)
                 {
-                    ChipLogProgress(DeviceLayer, "Inserted cluster %s for device %s", msg.cluster_name.c_str(), msg.device_id.c_str());
+                    ChipLogProgress(DeviceLayer, "Inserted cluster %s for device %s", msg.cluster_name.c_str(),
+                                    msg.device_id.c_str());
                 }
             }
         }
@@ -566,10 +567,11 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
                 sqlite3_bind_text(stmt, 3, msg.attribute_name.c_str(), -1, SQLITE_STATIC);
                 int rc = sqlite3_step(stmt);
                 sqlite3_finalize(stmt);
-                
+
                 if (rc == SQLITE_DONE)
                 {
-                    ChipLogProgress(DeviceLayer, "Inserted attribute %s.%s for device %s", msg.cluster_name.c_str(), msg.attribute_name.c_str(), msg.device_id.c_str());
+                    ChipLogProgress(DeviceLayer, "Inserted attribute %s.%s for device %s", msg.cluster_name.c_str(),
+                                    msg.attribute_name.c_str(), msg.device_id.c_str());
                 }
             }
         }
@@ -588,7 +590,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
         }
-        
+
         // Now update the state
         const char * update_sql = R"(
             UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP
@@ -601,7 +603,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_bind_text(update_stmt, 2, msg.device_id.c_str(), -1, SQLITE_STATIC);
             int rc = sqlite3_step(update_stmt);
             sqlite3_finalize(update_stmt);
-            
+
             if (rc == SQLITE_DONE)
             {
                 ChipLogProgress(DeviceLayer, "Updated device state for %s: %s", msg.device_id.c_str(), payload.c_str());
@@ -622,7 +624,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
         }
-        
+
         // Now update the nodes
         const char * update_sql = R"(
             UPDATE devices SET nodes = ?, updated_at = CURRENT_TIMESTAMP
@@ -635,7 +637,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_bind_text(update_stmt, 2, msg.device_id.c_str(), -1, SQLITE_STATIC);
             int rc = sqlite3_step(update_stmt);
             sqlite3_finalize(update_stmt);
-            
+
             if (rc == SQLITE_DONE)
             {
                 ChipLogProgress(DeviceLayer, "Updated device nodes for %s: %s", msg.device_id.c_str(), payload.c_str());
@@ -657,7 +659,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
         }
-        
+
         // Now update the cluster properties
         const char * update_sql = R"(
             UPDATE clusters SET cluster_properties = ?, updated_at = CURRENT_TIMESTAMP
@@ -671,10 +673,11 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_bind_text(update_stmt, 3, msg.cluster_name.c_str(), -1, SQLITE_STATIC);
             int rc = sqlite3_step(update_stmt);
             sqlite3_finalize(update_stmt);
-            
+
             if (rc == SQLITE_DONE)
             {
-                ChipLogProgress(DeviceLayer, "Updated cluster properties for %s.%s: %s", msg.device_id.c_str(), msg.cluster_name.c_str(), payload.c_str());
+                ChipLogProgress(DeviceLayer, "Updated cluster properties for %s.%s: %s", msg.device_id.c_str(),
+                                msg.cluster_name.c_str(), payload.c_str());
             }
         }
     }
@@ -694,7 +697,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
         }
-        
+
         // Now update the datatype
         const char * update_sql = R"(
             UPDATE attributes SET datatype = ?, updated_at = CURRENT_TIMESTAMP
@@ -727,9 +730,9 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
         }
-        
+
         // Now update the settable property
-        bool settable = (payload == "true");
+        bool settable           = (payload == "true");
         const char * update_sql = R"(
             UPDATE attributes SET settable = ?, updated_at = CURRENT_TIMESTAMP
             WHERE device_id = ? AND cluster_name = ? AND attribute_name = ?
@@ -761,7 +764,7 @@ void MQTTClient::ProcessHomieMessage(const std::string & topic, const std::strin
             sqlite3_step(insert_stmt);
             sqlite3_finalize(insert_stmt);
         }
-        
+
         // Now update the format info
         const char * update_sql = R"(
             UPDATE attributes SET format_info = ?, updated_at = CURRENT_TIMESTAMP

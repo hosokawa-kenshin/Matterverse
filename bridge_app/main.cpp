@@ -826,135 +826,340 @@ const EmberAfDeviceType gBridgedTempSensorDeviceTypes[] = { { DEVICE_TYPE_TEMP_S
 #define POLL_INTERVAL_MS (100)
 uint8_t poll_prescale = 0;
 
-bool kbhit()
-{
-    int byteswaiting;
-    ioctl(0, FIONREAD, &byteswaiting);
-    return byteswaiting > 0;
-}
-
 const int16_t oneDegree = 100;
+
+// Device type information for registration
+struct DeviceTypeInfo
+{
+    const char * name;
+    const char * description;
+};
+
+// Available device types for MQTT device registration
+static const DeviceTypeInfo gAvailableDeviceTypes[] = {
+    { "OnOff Light", "Basic on/off light control" },
+    { "Dimmable Light", "Dimmable light with level control" },
+    { "Temperature Sensor", "Temperature measurement device" },
+};
+
+static const size_t gDeviceTypeCount = sizeof(gAvailableDeviceTypes) / sizeof(gAvailableDeviceTypes[0]);
+
+// Command enumeration for CLI
+enum class CLICommand
+{
+    HELP,
+    REGISTER,
+    QUIT,
+    EMPTY,
+    OTHER
+};
+
+// Convert string to CLI command enum
+CLICommand getCommandType(const std::string & command)
+{
+    if (command == "help" || command == "h")
+        return CLICommand::HELP;
+    else if (command == "register")
+        return CLICommand::REGISTER;
+    else if (command == "quit" || command == "q" || command == "exit")
+        return CLICommand::QUIT;
+    else if (command.empty())
+        return CLICommand::EMPTY;
+    else
+        return CLICommand::OTHER;
+}
 
 void * bridge_polling_thread(void * context)
 {
     bool light1_added = true;
     bool light2_added = false;
+    std::string line;
+
+    // Print initial CLI prompt with welcome message
+    std::cout << "Matter Bridge CLI - Type 'help' for available commands" << std::endl;
+    std::cout << "> " << std::flush;
+
     while (true)
     {
-        if (kbhit())
+        if (std::getline(std::cin, line))
         {
-            int ch = getchar();
+            // Handle full commands using switch statement
+            CLICommand cmd = getCommandType(line);
+            switch (cmd)
+            {
+            case CLICommand::HELP:
+                std::cout << "Available commands:" << std::endl;
+                std::cout << "  2 - Add Light2" << std::endl;
+                std::cout << "  4 - Remove Light1" << std::endl;
+                std::cout << "  5 - Add Light1 back" << std::endl;
+                std::cout << "  b - Rename lights to 'Light 1b' and 'Light 2b'" << std::endl;
+                std::cout << "  c - Toggle lights state" << std::endl;
+                std::cout << "  t - Increase temperature sensor readings" << std::endl;
+                std::cout << "  r - Rename Room 1" << std::endl;
+                std::cout << "  f - Move Action Light 3 to Room 1" << std::endl;
+                std::cout << "  i - Hide Room 2" << std::endl;
+                std::cout << "  l - Show Zone 3 and move Action Light 2" << std::endl;
+                std::cout << "  m - Rename action to 'Turn On Room 1'" << std::endl;
+                std::cout << "  n - Hide 'Turn on Room 2 lights' action" << std::endl;
+                std::cout << "  o - Show 'Turn off Room 1 renamed lights' action" << std::endl;
+                std::cout << "  u - Set TempSensor1 unreachable" << std::endl;
+                std::cout << "  v - Set TempSensor1 reachable" << std::endl;
+                std::cout << "  help, h - Show this help message" << std::endl;
+                std::cout << "  register - Interactive MQTT device registration" << std::endl;
+                std::cout << "  quit, q, exit - Exit the application" << std::endl;
+                break;
 
-            // Commands used for the actions bridge test plan.
-            if (ch == '2' && light2_added == false)
-            {
-                // TC-BR-2 step 2, Add Light2
-                AddDeviceEndpoint(&Light2, &bridgedLightEndpoint, Span<const EmberAfDeviceType>(gBridgedOnOffDeviceTypes),
-                                  Span<DataVersion>(gLight2DataVersions), 1);
-                light2_added = true;
-            }
-            else if (ch == '4' && light1_added == true)
-            {
-                // TC-BR-2 step 4, Remove Light 1
-                RemoveDeviceEndpoint(&Light1);
-                light1_added = false;
-            }
-            if (ch == '5' && light1_added == false)
-            {
-                // TC-BR-2 step 5, Add Light 1 back
-                AddDeviceEndpoint(&Light1, &bridgedLightEndpoint, Span<const EmberAfDeviceType>(gBridgedOnOffDeviceTypes),
-                                  Span<DataVersion>(gLight1DataVersions), 1);
-                light1_added = true;
-            }
-            if (ch == 'b')
-            {
-                // TC-BR-3 step 1b, rename lights
-                if (light1_added)
+            case CLICommand::REGISTER: {
+                std::cout << "=== MQTT Device Registration ===" << std::endl;
+                if (!gMQTTClient)
                 {
-                    Light1.SetName("Light 1b");
+                    std::cout << "Error: MQTT client not initialized." << std::endl;
+                    break;
                 }
-                if (light2_added)
+
+                auto devices = gMQTTClient->GetAllDevices();
+                if (devices.empty())
                 {
-                    Light2.SetName("Light 2b");
+                    std::cout << "No MQTT devices found in database." << std::endl;
+                    break;
                 }
-            }
-            if (ch == 'c')
-            {
-                // TC-BR-3 step 2c, change the state of the lights
-                if (light1_added)
+
+                std::cout << "Available MQTT devices:" << std::endl;
+                int index = 1;
+                for (const auto & device : devices)
                 {
-                    Light1.Toggle();
+                    std::cout << "  " << index << ". Device ID: " << device.topic_id << std::endl;
+                    if (!device.device_name.empty())
+                    {
+                        std::cout << "     Name: " << device.device_name << std::endl;
+                    }
+                    if (!device.state.empty())
+                    {
+                        std::cout << "     State: " << device.state << std::endl;
+                    }
+                    if (!device.nodes.empty())
+                    {
+                        std::cout << "     Nodes: " << device.nodes << std::endl;
+                    }
+                    std::cout << std::endl;
+                    index++;
                 }
-                if (light2_added)
+
+                std::cout << "Select a device (1-" << devices.size() << ", or 0 to cancel): " << std::flush;
+                std::string deviceSelection;
+                if (!std::getline(std::cin, deviceSelection))
                 {
-                    Light2.Toggle();
+                    std::cout << "Input error. Registration cancelled." << std::endl;
+                    break;
                 }
-            }
-            if (ch == 't')
-            {
-                // TC-BR-4 step 1g, change the state of the temperature sensors
-                TempSensor1.SetMeasuredValue(static_cast<int16_t>(TempSensor1.GetMeasuredValue() + oneDegree));
-                TempSensor2.SetMeasuredValue(static_cast<int16_t>(TempSensor2.GetMeasuredValue() + oneDegree));
-                ComposedTempSensor1.SetMeasuredValue(static_cast<int16_t>(ComposedTempSensor1.GetMeasuredValue() + oneDegree));
-                ComposedTempSensor2.SetMeasuredValue(static_cast<int16_t>(ComposedTempSensor2.GetMeasuredValue() + oneDegree));
+
+                int deviceIndex = std::atoi(deviceSelection.c_str());
+                if (deviceIndex == 0)
+                {
+                    std::cout << "Registration cancelled." << std::endl;
+                    break;
+                }
+                if (deviceIndex < 1 || deviceIndex > static_cast<int>(devices.size()))
+                {
+                    std::cout << "Invalid device selection. Registration cancelled." << std::endl;
+                    break;
+                }
+
+                const auto & selectedDevice = devices[deviceIndex - 1];
+                std::cout << "Selected device: " << selectedDevice.topic_id << std::endl;
+
+                std::cout << "\nAvailable Device Types:" << std::endl;
+                for (size_t i = 0; i < gDeviceTypeCount; i++)
+                {
+                    std::cout << "  " << (i + 1) << ". " << gAvailableDeviceTypes[i].name << " - "
+                              << gAvailableDeviceTypes[i].description << std::endl;
+                }
+
+                std::cout << "Select a device type (1-" << gDeviceTypeCount << ", or 0 to cancel): " << std::flush;
+                std::string typeSelection;
+                if (!std::getline(std::cin, typeSelection))
+                {
+                    std::cout << "Input error. Registration cancelled." << std::endl;
+                    break;
+                }
+
+                int typeIndex = std::atoi(typeSelection.c_str());
+                if (typeIndex == 0)
+                {
+                    std::cout << "Registration cancelled." << std::endl;
+                    break;
+                }
+                if (typeIndex < 1 || typeIndex > static_cast<int>(gDeviceTypeCount))
+                {
+                    std::cout << "Invalid device type selection. Registration cancelled." << std::endl;
+                    break;
+                }
+
+                const auto & selectedType = gAvailableDeviceTypes[typeIndex - 1];
+                std::cout << "Selected device type: " << selectedType.name << std::endl;
+
+                std::cout << "\n=== Registration Summary ===" << std::endl;
+                std::cout << "MQTT Device: " << selectedDevice.topic_id << std::endl;
+                std::cout << "Device Type: " << selectedType.name << std::endl;
+                std::cout << "Registration processing will be implemented here..." << std::endl;
+                break;
             }
 
-            // Commands used for the actions cluster test plan.
-            if (ch == 'r')
-            {
-                // TC-ACT-2.2 step 2c, rename "Room 1"
-                room1.setName("Room 1 renamed");
-                ActionLight1.SetLocation(room1.getName());
-                ActionLight2.SetLocation(room1.getName());
+            case CLICommand::QUIT:
+                std::cout << "Exiting..." << std::endl;
+                return nullptr;
+
+            case CLICommand::EMPTY:
+                // Just show prompt again for empty input
+                break;
+
+            case CLICommand::OTHER: {
+                // Process each character in the line for backward compatibility with existing commands
+                for (char ch : line)
+                {
+                    switch (ch)
+                    {
+                    case '2':
+                        if (!light2_added)
+                        {
+                            // TC-BR-2 step 2, Add Light2
+                            AddDeviceEndpoint(&Light2, &bridgedLightEndpoint,
+                                              Span<const EmberAfDeviceType>(gBridgedOnOffDeviceTypes),
+                                              Span<DataVersion>(gLight2DataVersions), 1);
+                            light2_added = true;
+                            std::cout << "Light2 added" << std::endl;
+                        }
+                        break;
+
+                    case '4':
+                        if (light1_added)
+                        {
+                            // TC-BR-2 step 4, Remove Light 1
+                            RemoveDeviceEndpoint(&Light1);
+                            light1_added = false;
+                            std::cout << "Light1 removed" << std::endl;
+                        }
+                        break;
+
+                    case '5':
+                        if (!light1_added)
+                        {
+                            // TC-BR-2 step 5, Add Light 1 back
+                            AddDeviceEndpoint(&Light1, &bridgedLightEndpoint,
+                                              Span<const EmberAfDeviceType>(gBridgedOnOffDeviceTypes),
+                                              Span<DataVersion>(gLight1DataVersions), 1);
+                            light1_added = true;
+                            std::cout << "Light1 added back" << std::endl;
+                        }
+                        break;
+
+                    case 'b':
+                        // TC-BR-3 step 1b, rename lights
+                        if (light1_added)
+                        {
+                            Light1.SetName("Light 1b");
+                        }
+                        if (light2_added)
+                        {
+                            Light2.SetName("Light 2b");
+                        }
+                        std::cout << "Lights renamed to 'Light 1b' and 'Light 2b'" << std::endl;
+                        break;
+
+                    case 'c':
+                        // TC-BR-3 step 2c, change the state of the lights
+                        if (light1_added)
+                        {
+                            Light1.Toggle();
+                        }
+                        if (light2_added)
+                        {
+                            Light2.Toggle();
+                        }
+                        std::cout << "Lights toggled" << std::endl;
+                        break;
+
+                    case 't':
+                        // TC-BR-4 step 1g, change the state of the temperature sensors
+                        TempSensor1.SetMeasuredValue(static_cast<int16_t>(TempSensor1.GetMeasuredValue() + oneDegree));
+                        TempSensor2.SetMeasuredValue(static_cast<int16_t>(TempSensor2.GetMeasuredValue() + oneDegree));
+                        ComposedTempSensor1.SetMeasuredValue(
+                            static_cast<int16_t>(ComposedTempSensor1.GetMeasuredValue() + oneDegree));
+                        ComposedTempSensor2.SetMeasuredValue(
+                            static_cast<int16_t>(ComposedTempSensor2.GetMeasuredValue() + oneDegree));
+                        std::cout << "Temperature sensors increased by 1 degree" << std::endl;
+                        break;
+
+                    // Commands used for the actions cluster test plan.
+                    case 'r':
+                        // TC-ACT-2.2 step 2c, rename "Room 1"
+                        room1.setName("Room 1 renamed");
+                        ActionLight1.SetLocation(room1.getName());
+                        ActionLight2.SetLocation(room1.getName());
+                        break;
+
+                    case 'f':
+                        // TC-ACT-2.2 step 2f, move "Action Light 3" from "Room 2" to "Room 1"
+                        ActionLight3.SetLocation(room1.getName());
+                        break;
+
+                    case 'i':
+                        // TC-ACT-2.2 step 2i, remove "Room 2" (make it not visible in the endpoint list), do not remove the lights
+                        room2.setIsVisible(false);
+                        break;
+
+                    case 'l':
+                        // TC-ACT-2.2 step 2l, add a new "Zone 3" and add "Action Light 2" to the new zone
+                        room3.setIsVisible(true);
+                        ActionLight2.SetZone("Zone 3");
+                        break;
+
+                    case 'm':
+                        // TC-ACT-2.2 step 3c, rename "Turn on Room 1 lights"
+                        action1.setName("Turn On Room 1");
+                        break;
+
+                    case 'n':
+                        // TC-ACT-2.2 step 3f, remove "Turn on Room 2 lights"
+                        action2.setIsVisible(false);
+                        break;
+
+                    case 'o':
+                        // TC-ACT-2.2 step 3i, add "Turn off Room 1 renamed lights"
+                        action3.setIsVisible(true);
+                        break;
+
+                    // Commands used for the Bridged Device Basic Information test plan
+                    case 'u':
+                        // TC-BRBINFO-2.2 step 2 "Set reachable to false"
+                        TempSensor1.SetReachable(false);
+                        std::cout << "TempSensor1 set to unreachable" << std::endl;
+                        break;
+
+                    case 'v':
+                        // TC-BRBINFO-2.2 step 2 "Set reachable to true"
+                        TempSensor1.SetReachable(true);
+                        std::cout << "TempSensor1 set to reachable" << std::endl;
+                        break;
+
+                    default:
+                        // Ignore unrecognized characters
+                        break;
+                    }
+                }
+                break;
             }
-            if (ch == 'f')
-            {
-                // TC-ACT-2.2 step 2f, move "Action Light 3" from "Room 2" to "Room 1"
-                ActionLight3.SetLocation(room1.getName());
-            }
-            if (ch == 'i')
-            {
-                // TC-ACT-2.2 step 2i, remove "Room 2" (make it not visible in the endpoint list), do not remove the lights
-                room2.setIsVisible(false);
-            }
-            if (ch == 'l')
-            {
-                // TC-ACT-2.2 step 2l, add a new "Zone 3" and add "Action Light 2" to the new zone
-                room3.setIsVisible(true);
-                ActionLight2.SetZone("Zone 3");
-            }
-            if (ch == 'm')
-            {
-                // TC-ACT-2.2 step 3c, rename "Turn on Room 1 lights"
-                action1.setName("Turn On Room 1");
-            }
-            if (ch == 'n')
-            {
-                // TC-ACT-2.2 step 3f, remove "Turn on Room 2 lights"
-                action2.setIsVisible(false);
-            }
-            if (ch == 'o')
-            {
-                // TC-ACT-2.2 step 3i, add "Turn off Room 1 renamed lights"
-                action3.setIsVisible(true);
             }
 
-            // Commands used for the Bridged Device Basic Information test plan
-            if (ch == 'u')
-            {
-                // TC-BRBINFO-2.2 step 2 "Set reachable to false"
-                TempSensor1.SetReachable(false);
-            }
-            if (ch == 'v')
-            {
-                // TC-BRBINFO-2.2 step 2 "Set reachable to true"
-                TempSensor1.SetReachable(true);
-            }
-            continue;
+            // Print CLI prompt for next command
+            std::cout << "> " << std::flush;
         }
-
-        // Sleep to avoid tight loop reading commands
-        usleep(POLL_INTERVAL_MS * 1000);
+        else
+        {
+            // Handle EOF or error condition (e.g., Ctrl+D)
+            std::cout << std::endl << "Input stream closed. Exiting..." << std::endl;
+            break;
+        }
     }
 
     return nullptr;
@@ -1068,7 +1273,7 @@ void ApplicationInit()
     // Initialize MQTT Client
     ChipLogProgress(DeviceLayer, "Initializing MQTT Client...");
     mqtt::MQTTClient::Config mqttConfig;
-    mqttConfig.broker_host   = "localhost"; // TODO: Make this configurable
+    mqttConfig.broker_host   = "172.23.81.17"; // TODO: Make this configurable
     mqttConfig.broker_port   = 1883;
     mqttConfig.client_id     = "matter_bridge_mqtt";
     mqttConfig.database_path = "matter_devices.db"; // SQLite database path
