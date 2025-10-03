@@ -691,6 +691,38 @@ class Database:
             self.logger.error(f"Delete error: {e}")
             return False
 
+    async def get_value_by_attribute(self, node_id: int, endpoint: int, cluster: str, attribute: str) -> Optional[Any]:
+        """
+        Get attribute value by node ID, endpoint, cluster, and attribute name.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            cluster: Cluster name
+            attribute: Attribute name
+
+        Returns:
+            Attribute value or None if not found
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT Value FROM Attribute WHERE NodeID = ? AND Endpoint = ? AND Cluster = ? AND Attribute = ?
+                """, (node_id, endpoint, cluster, attribute))
+                row = cursor.fetchone()
+                if row:
+                    self.logger.info(f"Retrieved attribute value: NodeID={node_id}, Endpoint={endpoint}, "
+                                     f"Cluster={cluster}, Attribute={attribute}, Value={row[0]}")
+                    return row[0]
+                else:
+                    self.logger.warning(f"Attribute not found: NodeID={node_id}, Endpoint={endpoint}, "
+                                        f"Cluster={cluster}, Attribute={attribute}")
+                    return None
+        except sqlite3.Error as e:
+            self.logger.error(f"Get attribute value error: {e}")
+            return None
+
     def update_device_name(self, node_id: int, endpoint: int, name: str) -> bool:
         """
         Update device name.

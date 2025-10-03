@@ -13,6 +13,10 @@ from logger import get_api_logger
 class CommandRequest(BaseModel):
     """Request model for command execution."""
     command: str
+    node: int
+    endpoint: int
+    cluster: str
+    args: Dict[str, Any] = {}
 
 
 class DeviceRequest(BaseModel):
@@ -69,6 +73,7 @@ class APIInterface:
         self.device_manager = device_manager
         self.websocket = websocket_interface
         self.chip_tool = chip_tool_manager
+        self.database = device_manager.database
         self.data_model = data_model
         self.mqtt = mqtt
         self.polling_manager = polling_manager
@@ -165,6 +170,7 @@ class APIInterface:
                 Command execution result
             """
             try:
+                args = ""
                 self.logger.info(f"Received command: {request.command}")
 
                 # Pause polling if polling manager is available
@@ -172,8 +178,13 @@ class APIInterface:
                     await self.polling_manager.pause_polling_for_command()
 
                 try:
-                    # Execute command via chip-tool
-                    response = await self.chip_tool.execute_command(request.command)
+                    cluster_name = request.cluster.lower().replace("/", "").replace(" ", "")
+                    if request.args == {}:
+                        args = ""
+                    else:
+                        args = ' '.join([str(v) for v in request.args.values()])
+                    command = f'{cluster_name} {request.command} {args} {request.node} {request.endpoint}'
+                    response = await self.chip_tool.execute_command(command)
 
                     # Format response according to API design
                     if response.status == "success" and response.data:
@@ -191,8 +202,12 @@ class APIInterface:
                         }
 
                 finally:
-                    # Resume polling if polling manager is available
                     if self.polling_manager:
+                        if request.cluster == "On/Off" and request.command in ["on", "off", "toggle"]:
+                          current_value = await self.database.get_value_by_attribute(
+                            request.node, request.endpoint, "On/Off", "OnOff"
+                          )
+                          await self.polling_manager.poll_single_attribute(request.node, request.endpoint, "On/Off", "OnOff", current_value)
                         await self.polling_manager.resume_polling_after_command()
 
             except Exception as e:

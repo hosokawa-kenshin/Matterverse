@@ -15,9 +15,9 @@ from logger import get_chip_logger
 @dataclass
 class PollingConfig:
     """Configuration for polling subscription manager."""
-    polling_interval: int = 30      # 全属性統一ポーリング間隔（秒）
+    polling_interval: int = 5      # 全属性統一ポーリング間隔（秒）
     max_concurrent_devices: int = 5 # 最大並行デバイス数
-    command_timeout: int = 30       # コマンドタイムアウト（秒）
+    command_timeout: int = 10       # コマンドタイムアウト（秒）
     device_error_stop: bool = True  # エラー時デバイス停止
     enable_error_logging: bool = True # エラーログ記録有効
     auto_discovery_interval: int = 300  # 新デバイス自動検出間隔（秒、0で無効）
@@ -376,7 +376,7 @@ class PollingSubscriptionManager:
                     break
 
                 try:
-                    await self._poll_single_attribute(
+                    await self.poll_single_attribute(
                         node_id, endpoint, attr["Cluster"], attr["Attribute"], attr["Value"]
                     )
 
@@ -404,7 +404,7 @@ class PollingSubscriptionManager:
             self.logger.error(f"Error getting device attributes: {e}")
             return []
 
-    async def _poll_single_attribute(self, node_id: int, endpoint: int,
+    async def poll_single_attribute(self, node_id: int, endpoint: int,
                                    cluster_name: str, attribute_name: str, current_value: str):
         """Poll a single attribute and handle value changes."""
         try:
@@ -425,6 +425,7 @@ class PollingSubscriptionManager:
                 timeout=self.config.command_timeout
             )
 
+            self.logger.warning(f"Response for {command}: {response}")
             if response.status != "success":
                 self.logger.error(f"Failed to read attribute {cluster_name}.{attribute_name}: {response.error_message}")
                 return
