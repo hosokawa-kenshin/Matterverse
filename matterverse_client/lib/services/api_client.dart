@@ -105,8 +105,9 @@ class ApiClient {
     Map<String, dynamic>? args,
   }) async {
     try {
-      final url = ApiConfig.deviceCommandEndpoint(node, endpoint, cluster, command);
-      final requestBody = {'args': args ?? {}};
+      final url = '${ApiConfig.baseUrl}/command';
+      final payload = '${cluster} ${command} ${node} ${endpoint}';
+      final requestBody = {'command': payload};
 
       _logger.i('Executing command: $command on device $node:$endpoint, cluster: $cluster');
       _logger.d('Request body: $requestBody');
@@ -277,13 +278,12 @@ extension DeviceCommands on ApiClient {
     }
 
     final currentState = device.isOn;
-    final command = currentState == true ? 'Off' : 'On';
 
     return executeCommand(
       device.node,
       device.endpoint,
-      'On/Off',
-      command,
+      'onoff',
+      'toggle',
     );
   }
 

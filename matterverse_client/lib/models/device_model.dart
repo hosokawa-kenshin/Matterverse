@@ -424,8 +424,6 @@ class CommandResponse {
   final int node;
   final int endpoint;
   final String cluster;
-  final String command;
-  final Map<String, dynamic>? result;
   final String? error;
 
   CommandResponse({
@@ -433,20 +431,15 @@ class CommandResponse {
     required this.node,
     required this.endpoint,
     required this.cluster,
-    required this.command,
-    this.result,
     this.error,
   });
 
   factory CommandResponse.fromJson(Map<String, dynamic> json) {
     return CommandResponse(
       status: json['status'] as String,
-      node: json['node'] as int,
-      endpoint: json['endpoint'] as int,
-      cluster: json['cluster'] as String,
-      command: json['command'] as String,
-      result: json['result'] as Map<String, dynamic>?,
-      error: json['error'] as String?,
+      node: json['data']['node'] as int,
+      endpoint: json['data']['endpoint'] as int,
+      cluster: json['data']['cluster'] as String,
     );
   }
 
@@ -455,7 +448,7 @@ class CommandResponse {
 
   @override
   String toString() {
-    return 'CommandResponse(status: $status, node: $node, endpoint: $endpoint, cluster: $cluster, command: $command)';
+    return 'CommandResponse(status: $status, node: $node, endpoint: $endpoint, cluster: $cluster)';
   }
 }
 
