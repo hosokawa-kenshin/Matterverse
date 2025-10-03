@@ -90,9 +90,42 @@ class PollingSubscriptionManager:
         # Auto-discovery task
         self._discovery_task: Optional[asyncio.Task] = None
 
+        # Command execution control
+        self._command_in_progress = False
+        self._paused_for_command = False
+        self._command_lock = asyncio.Lock()
+
     def set_notification_callback(self, callback: Callable):
         """Set callback for value change notifications."""
         self._notification_callback = callback
+
+    async def pause_polling_for_command(self):
+        """Pause all polling operations for command execution."""
+        async with self._command_lock:
+            if not self._running:
+                return
+
+            self.logger.info("Pausing polling for command execution...")
+            self._paused_for_command = True
+            self._command_in_progress = True
+
+    async def resume_polling_after_command(self):
+        """Resume polling operations after command execution."""
+        async with self._command_lock:
+            if not self._running:
+                return
+
+            self.logger.info("Resuming polling after command execution...")
+            self._command_in_progress = False
+            self._paused_for_command = False
+
+    def is_polling_paused(self) -> bool:
+        """Check if polling is currently paused for command execution."""
+        return self._paused_for_command
+
+    def is_command_in_progress(self) -> bool:
+        """Check if a command is currently being executed."""
+        return self._command_in_progress
 
     async def start_polling_all_devices(self):
         """Start polling for all devices in database."""
@@ -286,6 +319,11 @@ class PollingSubscriptionManager:
 
         while self._running and self.state.is_device_enabled(node_id, endpoint):
             try:
+                # Check if polling is paused for command execution
+                if self._paused_for_command:
+                    await asyncio.sleep(0.5)  # Short sleep while paused
+                    continue
+
                 async with self._semaphore:  # Limit concurrent devices
                     await self._poll_device_attributes(node_id, endpoint)
 
@@ -315,6 +353,10 @@ class PollingSubscriptionManager:
         device_lock = self.state.get_device_lock(node_id, endpoint)
 
         async with device_lock:  # Ensure sequential execution within device
+            # Check if polling is paused for command execution
+            if self._paused_for_command:
+                return
+
             # Get all attributes for this device
             attributes = self._get_device_attributes(node_id, endpoint)
 
@@ -327,6 +369,10 @@ class PollingSubscriptionManager:
             # Poll each attribute sequentially
             for attr in attributes:
                 if not self._running or not self.state.is_device_enabled(node_id, endpoint):
+                    break
+
+                # Check if polling is paused for command execution
+                if self._paused_for_command:
                     break
 
                 try:

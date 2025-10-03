@@ -121,7 +121,8 @@ class MatterverseApplication:
                 self.websocket,
                 self.chip_tool,
                 self.data_model,
-                self.mqtt
+                self.mqtt,
+                self.polling_manager
             )
 
             # Setup callbacks

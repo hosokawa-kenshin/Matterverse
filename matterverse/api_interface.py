@@ -54,7 +54,7 @@ class DeviceNameRequest(BaseModel):
 class APIInterface:
     """API interface for REST endpoints."""
 
-    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model, mqtt):
+    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model, mqtt, polling_manager=None):
         """
         Initialize API interface.
 
@@ -63,12 +63,15 @@ class APIInterface:
             websocket_interface: WebSocket interface instance
             chip_tool_manager: ChipTool manager instance
             data_model: Data model dictionary instance
+            mqtt: MQTT interface instance
+            polling_manager: Polling subscription manager instance (optional)
         """
         self.device_manager = device_manager
         self.websocket = websocket_interface
         self.chip_tool = chip_tool_manager
         self.data_model = data_model
         self.mqtt = mqtt
+        self.polling_manager = polling_manager
         self.logger = get_api_logger()
 
         self.app = FastAPI(title="Matterverse API", version="1.0.0")
@@ -123,13 +126,26 @@ class APIInterface:
                 except Exception:
                     chip_tool_status = "unknown"
 
-                return {
+                # Check polling status
+                polling_status = {}
+                if self.polling_manager:
+                    polling_status = {
+                        "is_paused": self.polling_manager.is_polling_paused(),
+                        "command_in_progress": self.polling_manager.is_command_in_progress()
+                    }
+
+                response = {
                     "status": "healthy" if db_status == "healthy" else "unhealthy",
                     "websocket_clients": self.websocket.connected_clients_count,
                     "database": db_status,
                     "chip_tool": chip_tool_status,
                     "version": "1.0.0"
                 }
+
+                if polling_status:
+                    response["polling"] = polling_status
+
+                return response
             except Exception as e:
                 return {
                     "status": "unhealthy",
@@ -151,25 +167,39 @@ class APIInterface:
             try:
                 self.logger.info(f"Received command: {request.command}")
 
-                # Execute command via chip-tool
-                response = await self.chip_tool.execute_command(request.command)
+                # Pause polling if polling manager is available
+                if self.polling_manager:
+                    await self.polling_manager.pause_polling_for_command()
 
-                # Format response according to API design
-                if response.status == "success" and response.data:
-                    formatted_response = self._format_command_response(response)
-                    return {
-                        "status": "success",
-                        "command": request.command,
-                        "data": formatted_response
-                    }
-                else:
-                    return {
-                        "status": response.status,
-                        "command": request.command,
-                        "response": response.to_dict()
-                    }
+                try:
+                    # Execute command via chip-tool
+                    response = await self.chip_tool.execute_command(request.command)
+
+                    # Format response according to API design
+                    if response.status == "success" and response.data:
+                        formatted_response = self._format_command_response(response)
+                        return {
+                            "status": "success",
+                            "command": request.command,
+                            "data": formatted_response
+                        }
+                    else:
+                        return {
+                            "status": response.status,
+                            "command": request.command,
+                            "response": response.to_dict()
+                        }
+
+                finally:
+                    # Resume polling if polling manager is available
+                    if self.polling_manager:
+                        await self.polling_manager.resume_polling_after_command()
 
             except Exception as e:
+                # Ensure polling is resumed even if there's an error
+                if self.polling_manager:
+                    await self.polling_manager.resume_polling_after_command()
+
                 self.logger.error(f"Error executing command: {e}")
                 await self.websocket.send_error(f"Command execution failed: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
