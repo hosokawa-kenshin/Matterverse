@@ -181,9 +181,10 @@ class APIInterface:
                     cluster_name = request.cluster.lower().replace("/", "").replace(" ", "")
                     if request.args == {}:
                         args = ""
+                        command = f'{cluster_name} {request.command} {args} {request.node} {request.endpoint}'
                     else:
                         args = ' '.join([str(v) for v in request.args.values()])
-                    command = f'{cluster_name} {request.command} {args} {request.node} {request.endpoint}'
+                        command = f'{cluster_name} {request.command} {args} {request.node} {request.endpoint}'
                     response = await self.chip_tool.execute_command(command)
 
                     # Format response according to API design
