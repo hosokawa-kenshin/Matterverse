@@ -3,27 +3,60 @@ import 'package:gap/gap.dart';
 import '../models/device_model.dart';
 import '../services/websocket_service.dart';
 
-class DeviceStatusCard extends StatelessWidget {
+class DeviceStatusCard extends StatefulWidget {
   final Device device;
   final VoidCallback? onToggle;
   final VoidCallback? onTap;
+  final ValueChanged<int>? onChangeLevel;
 
   const DeviceStatusCard({
     super.key,
     required this.device,
     this.onToggle,
     this.onTap,
+    this.onChangeLevel,
   });
 
   @override
+  State<DeviceStatusCard> createState() => _DeviceStatusCardState();
+}
+
+class _DeviceStatusCardState extends State<DeviceStatusCard> {
+  late double _currentLevel;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentLevel = _convertLevelToPercent(widget.device.level);
+  }
+
+  @override
+  void didUpdateWidget(DeviceStatusCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.device.level != widget.device.level) {
+      _currentLevel = _convertLevelToPercent(widget.device.level);
+    }
+  }
+
+  double _convertLevelToPercent(int? level) {
+    if (level == null) return 0.0;
+    return (level / 254.0 * 100.0).clamp(0.0, 100.0);
+  }
+
+  int _convertPercentToLevel(double percent) {
+    return (percent / 100.0 * 254.0).round().clamp(0, 254);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isOnOffDevice = device.getCluster('On/Off') != null;
-    final isPowerMeasurement = device.getCluster('Electrical Power Measurement') != null;
+    final isOnOffDevice = widget.device.getCluster('On/Off') != null;
+    final isLevelControlDevice = widget.device.getCluster('Level Control') != null;
+    final isPowerMeasurement = widget.device.getCluster('Electrical Power Measurement') != null;
 
     return Card(
       elevation: 2,
       child: InkWell(
-        onTap: onTap,
+        onTap: widget.onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -40,7 +73,7 @@ class DeviceStatusCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          device.displayName,
+                          widget.device.displayName,
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -48,7 +81,7 @@ class DeviceStatusCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          '${device.node}:${device.endpoint}',
+                          '${widget.device.node}:${widget.device.endpoint}',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                           ),
@@ -73,19 +106,51 @@ class DeviceStatusCard extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: onToggle,
-                    icon: Icon(device.isOn == true ? Icons.power_off : Icons.power),
-                    label: Text(device.isOn == true ? 'オフ' : 'オン'),
+                    onPressed: widget.onToggle,
+                    icon: Icon(widget.device.isOn == true ? Icons.power_off : Icons.power),
+                    label: Text(widget.device.isOn == true ? 'オフ' : 'オン'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: device.isOn == true
+                      backgroundColor: widget.device.isOn == true
                           ? Theme.of(context).colorScheme.secondary
                           : Theme.of(context).colorScheme.primary,
-                      foregroundColor: device.isOn == true
+                      foregroundColor: widget.device.isOn == true
                           ? Theme.of(context).colorScheme.onSecondary
                           : Theme.of(context).colorScheme.onPrimary,
                     ),
                   ),
                 ),
+              ],
+
+              if (isLevelControlDevice) ...[
+                const Gap(8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '明るさ: ${_currentLevel.toInt() ?? 0}%',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const Gap(4),
+                    Slider(
+                      value: (_currentLevel ?? 0).toDouble(),
+                      min: 0,
+                      max: 100,
+                      divisions: 100,
+                      onChanged: (value) {
+                        // TODO: Implement level change logic
+                        // current level range is 0 to 254
+                        // levelcontrol move-to-level 128 10 0 0 3 1
+                        setState(() {
+                          _currentLevel = value;
+                        });
+                      },
+                      onChangeEnd: (value) {
+                        final level = _convertPercentToLevel(value);
+                        widget.onChangeLevel?.call(level);
+                      },
+                    ),
+                  ],
+                )
               ],
             ],
           ),
@@ -98,15 +163,15 @@ class DeviceStatusCard extends StatelessWidget {
     IconData iconData;
     Color? iconColor;
 
-    if (device.deviceType.contains('Plug')) {
+    if (widget.device.deviceType.contains('Plug')) {
       iconData = Icons.electrical_services;
-      iconColor = device.isOn == true ? Colors.green : Colors.grey;
-    } else if (device.deviceType.contains('Sensor')) {
+      iconColor = widget.device.isOn == true ? Colors.green : Colors.grey;
+    } else if (widget.device.deviceType.contains('Sensor')) {
       iconData = Icons.sensors;
       iconColor = Colors.blue;
-    } else if (device.deviceType.contains('Light')) {
+    } else if (widget.device.deviceType.contains('Light')) {
       iconData = Icons.lightbulb;
-      iconColor = device.isOn == true ? Colors.amber : Colors.grey;
+      iconColor = widget.device.isOn == true ? Colors.amber : Colors.grey;
     } else {
       iconData = Icons.device_unknown;
       iconColor = Colors.grey;
@@ -116,7 +181,7 @@ class DeviceStatusCard extends StatelessWidget {
   }
 
   Widget _buildStatusIndicator() {
-    final isOn = device.isOn;
+    final isOn = widget.device.isOn;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -135,9 +200,9 @@ class DeviceStatusCard extends StatelessWidget {
   }
 
   Widget _buildPowerInfo() {
-    final activePower = device.activePower;
-    final rmsVoltage = device.rmsVoltage;
-    final rmsCurrent = device.rmsCurrent;
+    final activePower = widget.device.activePower;
+    final rmsVoltage = widget.device.rmsVoltage;
+    final rmsCurrent = widget.device.rmsCurrent;
 
     return Column(
       children: [

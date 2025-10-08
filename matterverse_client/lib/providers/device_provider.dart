@@ -235,6 +235,9 @@ class DeviceProvider with ChangeNotifier {
   Future<CommandResponse> toggleDevice(Device device) =>
       _apiClient.toggleDevice(device);
 
+  Future<CommandResponse> setDeviceLevel(Device device, int level) =>
+      _apiClient.setDeviceLevel(device, level);
+
   Future<CommandResponse> turnOnDevice(Device device) =>
       _apiClient.turnOnDevice(device);
 

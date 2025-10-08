@@ -174,6 +174,7 @@ class _DashBoardPageState extends State<DashBoardPage> {
           device: device,
           onToggle: () => _toggleDevice(deviceProvider, device),
           onTap: () => _navigateToDeviceDetail(context, device),
+          onChangeLevel: (value) => _changeLevel(deviceProvider, device, value),
         );
       },
     );
@@ -248,6 +249,17 @@ class _DashBoardPageState extends State<DashBoardPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _changeLevel(DeviceProvider deviceProvider, Device device, int level) async {
+    try {
+      final response = await deviceProvider.setDeviceLevel(device, level);
+      if (!response.isSuccess) {
+        _showErrorSnackBar('デバイスの明るさ変更に失敗しました: ${response.error}');
+      }
+    } catch (e) {
+      _showErrorSnackBar('デバイスの明るさ変更に失敗しました: $e');
+    }
   }
 
   Future<void> _toggleDevice(DeviceProvider deviceProvider, Device device) async {

@@ -77,6 +77,11 @@ class Device {
     return _parseToBool(value);
   }
 
+  int? get level {
+    final value = getAttributeValue('Level Control', 'CurrentLevel');
+    return _parseToInt(value);
+  }
+
   // Get active power (for Electrical Power Measurement devices)
   int? get activePower {
     final value = getAttributeValue('Electrical Power Measurement', 'ActivePower');

@@ -286,6 +286,26 @@ extension DeviceCommands on ApiClient {
     );
   }
 
+  Future<CommandResponse> setDeviceLevel(Device device, int level) async {
+    final levelControlCluster = device.getCluster('Level Control');
+    if (levelControlCluster == null) {
+      throw ApiException('Device does not support Level Control');
+    }
+
+    return executeCommand(
+      device.node,
+      device.endpoint,
+      'Level Control',
+      'move-to-level',
+      args: {
+        'Level': level,
+        'TransitionTime': 0,
+        'OptionsMask': 0,
+        'OptionsOverride': 0,
+      },
+    );
+  }
+
   // Turn device on
   Future<CommandResponse> turnOnDevice(Device device) async {
     return executeCommand(
