@@ -60,6 +60,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy built chip-tool from builder stage
 COPY --from=builder /app/connectedhomeip/out/host/chip-tool /usr/local/bin/chip-tool
+COPY --from=builder /etc/chip/ /etc/chip/
 RUN chmod +x /usr/local/bin/chip-tool
 
 # Create non-root user
