@@ -32,38 +32,12 @@ The Matterverse ecosystem consists of several components:
 If you want to use Matterverse without building from source, create the following directory structure:
 
 ```bash
-# Create system directories for Matterverse
-sudo mkdir -p /etc/matterverse/{config,db,commissioning_dir}
-
-# Create configuration file
-sudo tee /etc/matterverse/config/.env << 'EOF'
-# Matterverse Configuration
-CHIP_TOOL_PATH=/usr/local/bin/chip-tool
-COMMISSIONING_DIR=/app/commissioning_dir
-DATABASE_PATH=/app/db/matterverse.db
-DEVICETYPE_XML_FILE=/app/data_model/matter-devices.xml
-CLUSTER_XML_DIR=/app/data_model
-PAA_CERT_DIR_PATH=/app/paa-root-certs
-MQTT_BROKER_URL=mqtt://example.com # Update with your MQTT broker
-MQTT_BROKER_PORT=1883
-EOF
-
-# Set proper permissions
-sudo chown -R {DockerUID}:{DockerUID} /etc/matterverse # for Docker
-
-# Create docker-compose.yml
-cat > docker-compose.yml << 'EOF'
-services:
-  matterverse:
-    image: kenshinhosokawa/matterverse:latest
-    container_name: matterverse-app
-    restart: unless-stopped
-    volumes:
-      - /etc/matterverse/db:/app/db
-      - /etc/matterverse/commissioning_dir:/app/commissioning_dir
-      - /etc/matterverse/config:/app/config:ro
-    network_mode: host
-EOF
+git clone https://github.com/hosokawa-kenshin/Matterverse.git
+cp config/.env.docker.example config/.env
+vim config/.env
+# Edit .env file with your specific configuration
+MQTT_BROKER_URL=mqtt://example.com  # Update with your MQTT broker
+sudo chown -R {DockerUID}:{DockerUID} {config db commissioning_dir} # for Docker
 
 # Start Matterverse
 docker-compose up -d
@@ -87,16 +61,11 @@ Access the application at:
 2. **Configure environment variables**
    ```bash
    cd matterverse
-   sudo mkdir /etc/matterverse
-   sudo cp -r config /etc/matterverse/
-   sudo cp -r commissioning_dir /etc/matterverse/
-   sudo cp -r db /etc/matterverse/
-
-   sudo cp config/.env.docker.example /etc/matterverse/config/.env
-   sudo vim /etc/matterverse/config/.env
+   cp config/.env.docker.example config/.env
+   vim config/.env
    # Edit .env file with your specific configuration
    MQTT_BROKER_URL=mqtt://example.com  # Update with your MQTT broker
-   sudo chown -R {DockerUID}:{DockerUID} /etc/matterverse # for Docker
+   sudo chown -R {DockerUID}:{DockerUID} {config db commissioning_dir} # for Docker
    ```
 
 2. **Start with Docker Compose**
