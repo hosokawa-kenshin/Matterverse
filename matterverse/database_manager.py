@@ -654,6 +654,41 @@ class Database:
             self.logger.error(f"Insert/Update error: {e}")
             return False
 
+    def update_attribute_value(self, node_id: int, endpoint: int, cluster: str, attribute: str, value: str) -> bool:
+        """
+        Update attribute value directly.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            cluster: Cluster name
+            attribute: Attribute name
+            value: New attribute value
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                UPDATE Attribute SET Value = ?
+                WHERE NodeID = ? AND Endpoint = ? AND Cluster = ? AND Attribute = ?
+                """, (value, node_id, endpoint, cluster, attribute))
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    self.logger.info(f"Updated attribute value: NodeID={node_id}, Endpoint={endpoint}, "
+                                   f"Cluster={cluster}, Attribute={attribute}, Value={value}")
+                    return True
+                else:
+                    self.logger.warning(f"No attribute found to update: NodeID={node_id}, Endpoint={endpoint}, "
+                                      f"Cluster={cluster}, Attribute={attribute}")
+                    return False
+        except sqlite3.Error as e:
+            self.logger.error(f"Update attribute value error: {e}")
+            return False
+
     def delete_device(self, node_id: int, endpoint: int) -> bool:
         """
         Delete device by node ID and endpoint.

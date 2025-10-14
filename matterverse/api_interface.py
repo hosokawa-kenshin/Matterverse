@@ -288,275 +288,102 @@ class APIInterface:
         async def demo_commissioning(request: Optional[CommissioningRequest] = None):
             """
             Demo commissioning endpoint.
+            Adds demo device and attribute data to the database.
 
             Returns:
                 Demo commissioning result
             """
             try:
-                return {"status": "success", "devices": [
-                    {
-                        "node": 1,
-                        "endpoint": 1,
-                        "name": "Matter Light",
-                        "device_type": "Matter On/Off Light",
-                        "topic_id": "nomlab_light_b034be419188ba3d766d03f86325c560e19fbed9d80bca62fa509b51af97b70a",
-                        "clusters": [
-                          {
-                            "name": "Descriptor",
-                            "attributes": [
-                              {
-                                "name": "ClientList",
-                                "type": "array",
-                                "value": []
-                              },
-                              {
-                                "name": "DeviceTypeList",
-                                "type": "array",
-                                "value": "[{'0x0': '266', '0x1': '1'}]"
-                              },
-                              {
-                                "name": "PartsList",
-                                "type": "array",
-                                "value": []
-                              },
-                              {
-                                "name": "ServerList",
-                                "type": "array",
-                                "value": "['3', '4', '6', '29']"
-                              }
-                            ],
-                            "commands": []
-                          },
-                          {
-                            "name": "Groups",
-                            "attributes": [
-                              {
-                                "name": "NameSupport",
-                                "type": "NameSupportBitmap",
-                                "value": 128
-                              }
-                            ],
-                            "commands": [
-                              {
-                                "name": "AddGroup",
-                                "args": [
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  },
-                                  {
-                                    "name": "GroupName",
-                                    "type": "char_string"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "ViewGroup",
-                                "args": [
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "GetGroupMembership",
-                                "args": [
-                                  {
-                                    "name": "GroupList",
-                                    "type": "group_id"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "RemoveGroup",
-                                "args": [
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "RemoveAllGroups",
-                                "args": []
-                              },
-                              {
-                                "name": "AddGroupIfIdentifying",
-                                "args": [
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  },
-                                  {
-                                    "name": "GroupName",
-                                    "type": "char_string"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "AddGroupResponse",
-                                "args": [
-                                  {
-                                    "name": "Status",
-                                    "type": "enum8"
-                                  },
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "ViewGroupResponse",
-                                "args": [
-                                  {
-                                    "name": "Status",
-                                    "type": "enum8"
-                                  },
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  },
-                                  {
-                                    "name": "GroupName",
-                                    "type": "char_string"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "GetGroupMembershipResponse",
-                                "args": [
-                                  {
-                                    "name": "Capacity",
-                                    "type": "int8u"
-                                  },
-                                  {
-                                    "name": "GroupList",
-                                    "type": "group_id"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "RemoveGroupResponse",
-                                "args": [
-                                  {
-                                    "name": "Status",
-                                    "type": "enum8"
-                                  },
-                                  {
-                                    "name": "GroupID",
-                                    "type": "group_id"
-                                  }
-                                ]
-                              }
-                            ]
-                          },
-                          {
-                            "name": "Identify",
-                            "attributes": [
-                              {
-                                "name": "IdentifyTime",
-                                "type": "int16u",
-                                "value": 0
-                              },
-                              {
-                                "name": "IdentifyType",
-                                "type": "IdentifyTypeEnum",
-                                "value": 2
-                              }
-                            ],
-                            "commands": [
-                              {
-                                "name": "Identify",
-                                "args": [
-                                  {
-                                    "name": "IdentifyTime",
-                                    "type": "int16u"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "TriggerEffect",
-                                "args": [
-                                  {
-                                    "name": "EffectIdentifier",
-                                    "type": "EffectIdentifierEnum"
-                                  },
-                                  {
-                                    "name": "EffectVariant",
-                                    "type": "EffectVariantEnum"
-                                  }
-                                ]
-                              }
-                            ]
-                          },
-                          {
-                            "name": "On/Off",
-                            "attributes": [
-                              {
-                                "name": "OnOff",
-                                "type": "boolean",
-                                "value": "true"
-                              }
-                            ],
-                            "commands": [
-                              {
-                                "name": "Off",
-                                "args": []
-                              },
-                              {
-                                "name": "On",
-                                "args": []
-                              },
-                              {
-                                "name": "Toggle",
-                                "args": []
-                              },
-                              {
-                                "name": "OffWithEffect",
-                                "args": [
-                                  {
-                                    "name": "EffectIdentifier",
-                                    "type": "EffectIdentifierEnum"
-                                  },
-                                  {
-                                    "name": "EffectVariant",
-                                    "type": "enum8"
-                                  }
-                                ]
-                              },
-                              {
-                                "name": "OnWithRecallGlobalScene",
-                                "args": []
-                              },
-                              {
-                                "name": "OnWithTimedOff",
-                                "args": [
-                                  {
-                                    "name": "OnOffControl",
-                                    "type": "OnOffControlBitmap"
-                                  },
-                                  {
-                                    "name": "OnTime",
-                                    "type": "int16u"
-                                  },
-                                  {
-                                    "name": "OffWaitTime",
-                                    "type": "int16u"
-                                  }
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ],
-                  }
+                # Demo data definition
+                demo_node_id = 1
+                demo_endpoint = 1
+                demo_device_type = "Matter Extended Color Light"
+                demo_device_name = "Matter Light"
+                demo_topic_id = "demo_matter_light"
+                demo_unique_id = "demo_unique_id_1"
 
+                # First, delete existing demo device if exists
+                existing_device = self.database.get_device_by_node_id_endpoint(demo_node_id, demo_endpoint)
+                if existing_device:
+                    self.logger.info(f"Deleting existing demo device: NodeID={demo_node_id}, Endpoint={demo_endpoint}")
+                    self.database.delete_device(demo_node_id, demo_endpoint)
+
+                # Insert unique ID
+                if not self.database.insert_unique_id(demo_node_id, "demo_device", demo_unique_id):
+                    self.logger.warning("Failed to insert demo unique ID (may already exist)")
+
+                # Insert demo device
+                if not self.database.insert_device(demo_node_id, demo_endpoint, demo_device_type, demo_device_name, demo_topic_id):
+                    self.logger.error("Failed to insert demo device")
+                    raise HTTPException(status_code=500, detail="Failed to create demo device")
+
+                # Demo clusters and attributes
+                demo_clusters = [
+                    {
+                        "name": "Descriptor",
+                        "attributes": [
+                            {"name": "ClientList", "type": "array", "value": "[]"},
+                            {"name": "DeviceTypeList", "type": "array", "value": "[{'0x0': '266', '0x1': '1'}]"},
+                            {"name": "PartsList", "type": "array", "value": "[]"},
+                            {"name": "ServerList", "type": "array", "value": "['3', '4', '6', '29']"}
+                        ]
+                    },
+                    {
+                        "name": "Groups",
+                        "attributes": [
+                            {"name": "NameSupport", "type": "NameSupportBitmap", "value": "128"}
+                        ]
+                    },
+                    {
+                        "name": "Identify",
+                        "attributes": [
+                            {"name": "IdentifyTime", "type": "int16u", "value": "0"},
+                            {"name": "IdentifyType", "type": "IdentifyTypeEnum", "value": "2"}
+                        ]
+                    },
+                    {
+                        "name": "On/Off",
+                        "attributes": [
+                            {"name": "OnOff", "type": "boolean", "value": "true"}
+                        ]
+                    }
+                ]
+
+                # Insert attributes into database
+                for cluster in demo_clusters:
+                    cluster_name = cluster["name"]
+                    for attr in cluster["attributes"]:
+                        attr_name = attr["name"]
+                        attr_type = attr["type"]
+                        attr_value = attr["value"]
+
+                        # Create attribute entry
+                        if self.database.create_attribute_entry(demo_node_id, demo_endpoint, cluster_name, attr_name):
+                            # Update the value if creation was successful
+                            self.database.update_attribute_value(demo_node_id, demo_endpoint, cluster_name, attr_name, attr_value)
+                            self.logger.info(f"Created demo attribute: {cluster_name}.{attr_name} = {attr_value}")
+                        else:
+                            self.logger.warning(f"Failed to create demo attribute: {cluster_name}.{attr_name}")
+
+                # Return success response with the created device data
+                created_device = self.database.get_device_by_node_id_endpoint(demo_node_id, demo_endpoint)
+                if not created_device:
+                    raise HTTPException(status_code=500, detail="Failed to retrieve created demo device")
+
+                devices = self.database.get_devices_by_node_id(demo_node_id)
+                await self.websocket.broadcast_device_addition(devices)
+                self.logger.info(f"Sent WebSocket register_report for demo device: NodeID={demo_node_id}, Endpoint={demo_endpoint}")
+
+                return {
+                    "status": "success",
+                    "devices": devices
+                }
+
+            except HTTPException:
+                raise
             except Exception as e:
-                    self.logger.error(f"Error  commissioning: {e}")
-                    raise HTTPException(status_code=500, detail=str(e))
+                self.logger.error(f"Error in demo commissioning: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/device/{node_id}/window")
         async def open_commissioning_window(node_id: int, request: CommissioningWindowRequest):
