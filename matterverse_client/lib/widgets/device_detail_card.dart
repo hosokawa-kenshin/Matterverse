@@ -398,8 +398,17 @@ class DeviceDetailCard extends StatelessWidget {
 
     switch (attribute.uiType) {
       case AttributeUIType.switch_:
+        bool boolValue = false;
+        if (value is bool) {
+          boolValue = value;
+        } else if (value is String) {
+          boolValue = value.toLowerCase() == 'true' || value == '1';
+        } else if (value is num) {
+          boolValue = value != 0;
+        }
+
         return Switch(
-          value: value as bool? ?? false,
+          value: boolValue,
           onChanged: attribute.isWritable
               ? (newValue) {
                   // Handle attribute change
