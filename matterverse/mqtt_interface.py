@@ -37,6 +37,7 @@ class MQTTInterface:
         # Data model access
         self._data_model = None
         self._database = None
+        self._polling_manager = None
 
     def set_data_model(self, data_model):
         """Set data model dictionary reference."""
@@ -45,6 +46,10 @@ class MQTTInterface:
     def set_database(self, database):
         """Set database reference."""
         self._database = database
+
+    def set_polling_manager(self, polling_manager):
+        """Set polling manager reference for command handling."""
+        self._polling_manager = polling_manager
 
     def set_command_callback(self, callback: Callable):
         """Set callback for handling MQTT commands."""
@@ -131,10 +136,27 @@ class MQTTInterface:
         else:
             chip_command = f"{cluster_name} write {attribute_name} {payload} {node_id} {endpoint_id}"
 
-        # Execute command via callback
+        # Execute command via callback with polling pause/resume
         if self._command_callback:
+            async def execute_command_with_polling_control():
+                try:
+                    # Pause all polling for command execution
+                    if self._polling_manager:
+                        self.logger.info("Pausing polling for MQTT command execution...")
+                        await self._polling_manager.pause_polling_for_command()
+                    
+                    # Execute the command
+                    self.logger.info(f"Executing MQTT command: {chip_command}")
+                    await self._command_callback(chip_command)
+                    
+                finally:
+                    # Resume all polling after command execution
+                    if self._polling_manager:
+                        self.logger.info("Resuming polling after MQTT command execution...")
+                        await self._polling_manager.resume_polling_after_command()
+
             def run_in_thread():
-                asyncio.run(self._command_callback(chip_command))
+                asyncio.run(execute_command_with_polling_control())
 
             thread = threading.Thread(target=run_in_thread)
             thread.start()

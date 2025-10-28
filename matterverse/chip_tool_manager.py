@@ -5,6 +5,7 @@ Each command request runs in a separate chip-tool process for complete isolation
 """
 import asyncio
 import json
+import os
 import re
 import time
 from typing import Optional, Dict, Any, Callable
@@ -427,6 +428,15 @@ class ProcessBasedChipToolManager:
                             continue
                     else:
                         self.logger.error(f"[{process_id}] All retries failed due to resource busy")
+
+                config_ini_path = os.path.join(self.commissioning_dir, "chip_tool_config.ini")
+                if os.path.exists(config_ini_path):
+                    try:
+                        os.remove(config_ini_path)
+                        self.logger.info(f"[{process_id}] Deleted chip_tool_config.ini to reset session state")
+                    except Exception as e:
+                        self.logger.warning(f"[{process_id}] Failed to delete chip_tool_config.ini: {e}")
+
                 return response
 
             except asyncio.TimeoutError:

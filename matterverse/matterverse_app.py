@@ -161,6 +161,9 @@ class MatterverseApplication:
         # Set MQTT command callback
         self.mqtt.set_command_callback(self.chip_tool.execute_command)
 
+        # Set MQTT polling manager for command handling
+        self.mqtt.set_polling_manager(self.polling_manager)
+
         # Set polling notification callback (new)
         self.polling_manager.set_notification_callback(self._handle_polling_notification)
 
