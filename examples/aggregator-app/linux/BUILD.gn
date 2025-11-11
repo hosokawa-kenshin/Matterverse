@@ -20,8 +20,8 @@ assert(chip_build_tools)
 
 executable("chip-bridge-app") {
   sources = [
-    "${chip_root}/examples/bridge-app/bridge-common/include/CHIPProjectAppConfig.h",
-    "${chip_root}/examples/bridge-app/linux/bridged-actions-stub.cpp",
+    "${chip_root}/examples/bridge-dev/bridge-common/include/CHIPProjectAppConfig.h",
+    "${chip_root}/examples/bridge-dev/linux/bridged-actions-stub.cpp",
     "Device.cpp",
     "include/Device.h",
     "include/main.h",
@@ -29,14 +29,16 @@ executable("chip-bridge-app") {
   ]
 
   deps = [
-    "${chip_root}/examples/bridge-app/bridge-common",
+    "${chip_root}/examples/bridge-dev/bridge-common",
     "${chip_root}/examples/platform/linux:app-main",
     "${chip_root}/src/lib",
   ]
 
-  cflags = [ "-Wconversion" ]
+  include_dirs = [ "include", "${chip_root}/src/app/clusters/location-detector-server"]
 
-  include_dirs = [ "include" ]
+  libs = ["sqlite3"]
+
+  cflags = [ "-Wconversion" ]
 
   output_dir = root_out_dir
 }

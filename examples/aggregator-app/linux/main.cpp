@@ -21,6 +21,8 @@ const EmberAfDeviceType gBridgedTempSensorDeviceTypes[] = { { DEVICE_TYPE_TEMP_S
  */
 
 #include <AppMain.h>
+#define CHIP_DEVICE_CONFIG_ENDPOINT_COUNT_LOCATION_DETECTOR 1
+#include <location-detector-server.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <platform/PlatformManager.h>
 
@@ -55,6 +57,12 @@ const EmberAfDeviceType gBridgedTempSensorDeviceTypes[] = { { DEVICE_TYPE_TEMP_S
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include <chrono>
+#include <libgen.h>
+#include <sqlite3.h>
+#include <thread>
+#include <unistd.h>
 
 using namespace chip;
 using namespace chip::app;
@@ -545,18 +553,7 @@ Protocols::InteractionModel::Status emberAfExternalAttributeWriteCallback(Endpoi
     return ret;
 }
 
-const EmberAfDeviceType gBridgedOnOffDeviceTypes[] = { { DEVICE_TYPE_LO_ON_OFF_LIGHT, DEVICE_VERSION_DEFAULT },
-                                                       { DEVICE_TYPE_BRIDGED_NODE, DEVICE_VERSION_DEFAULT } };
-
 const EmberAfDeviceType gBridgedEntityLocationDeviceTypes[] = { { DEVICE_TYPE_BRIDGED_NODE, DEVICE_VERSION_DEFAULT } };
-
-const EmberAfDeviceType gBridgedComposedDeviceTypes[] = { { DEVICE_TYPE_BRIDGED_NODE, DEVICE_VERSION_DEFAULT },
-                                                          { DEVICE_TYPE_POWER_SOURCE, DEVICE_VERSION_DEFAULT } };
-
-const EmberAfDeviceType gComposedTempSensorDeviceTypes[] = { { DEVICE_TYPE_TEMP_SENSOR, DEVICE_VERSION_DEFAULT } };
-
-const EmberAfDeviceType gBridgedTempSensorDeviceTypes[] = { { DEVICE_TYPE_TEMP_SENSOR, DEVICE_VERSION_DEFAULT },
-                                                            { DEVICE_TYPE_BRIDGED_NODE, DEVICE_VERSION_DEFAULT } };
 
 #define POLL_INTERVAL_MS (100)
 
@@ -569,7 +566,6 @@ bool kbhit()
 
 const int16_t oneDegree = 100;
 
-// 位置推定システム用の関数
 void UpdatePersonLocation(DeviceEntityLocation * person, const std::string & newLocation)
 {
     if (person->IsReachable())
@@ -579,7 +575,6 @@ void UpdatePersonLocation(DeviceEntityLocation * person, const std::string & new
     }
 }
 
-// 位置推定システムのステータス表示
 void DisplayLocationSystem()
 {
     ChipLogProgress(DeviceLayer, "=== Location Tracking System Status ===");
@@ -595,13 +590,11 @@ void DisplayLocationSystem()
     ChipLogProgress(DeviceLayer, "=====================================");
 }
 
-// 位置推定のシミュレーション用関数
 void SimulateLocationTracking()
 {
     static int simulation_step = 0;
     simulation_step++;
 
-    // 各人の位置をランダムに更新（実際のシステムでは位置推定アルゴリズムからの結果）
     switch (simulation_step % 8)
     {
     case 0:
@@ -648,40 +641,32 @@ void * bridge_polling_thread(void * context)
         if (kbhit())
         {
             int ch = getchar();
-            // 位置推定システム用コマンド
             if (ch == 'p')
             {
-                // 位置推定システムのステータス表示
                 DisplayLocationSystem();
             }
             if (ch == 's')
             {
-                // 位置推定のシミュレーション実行
                 SimulateLocationTracking();
             }
             if (ch == '1')
             {
-                // Person1 を Living Room に移動
                 UpdatePersonLocation(&Person1, "Living Room");
             }
             if (ch == '2')
             {
-                // Person2 を Kitchen に移動
                 UpdatePersonLocation(&Person2, "Kitchen");
             }
             if (ch == '3')
             {
-                // Person3 を Office に移動
                 UpdatePersonLocation(&Person3, "Office");
             }
             if (ch == '4')
             {
-                // Person4 を Bedroom に移動
                 UpdatePersonLocation(&Person4, "Bedroom");
             }
             if (ch == 'a')
             {
-                // 全員を Living Room に集合
                 UpdatePersonLocation(&Person1, "Living Room");
                 UpdatePersonLocation(&Person2, "Living Room");
                 UpdatePersonLocation(&Person3, "Living Room");
@@ -690,7 +675,6 @@ void * bridge_polling_thread(void * context)
             }
             if (ch == 'd')
             {
-                // 全員を異なる部屋に分散
                 UpdatePersonLocation(&Person1, "Living Room");
                 UpdatePersonLocation(&Person2, "Kitchen");
                 UpdatePersonLocation(&Person3, "Office");
@@ -707,6 +691,82 @@ void * bridge_polling_thread(void * context)
     return nullptr;
 }
 
+// -----------------------------------------------------------------------------
+std::string dbPath2 = getDBPath();
+
+void estimate_location_from_DB(const std::string & sentinel, int threshold)
+{
+    sqlite3 * db        = NULL;
+    sqlite3_stmt * stmt = NULL;
+    int ret             = sqlite3_open_v2(dbPath2.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL);
+    if (ret != SQLITE_OK)
+    {
+        printf("Cannot open database: %s\n", sqlite3_errmsg(db));
+        return;
+    }
+
+    const char * beacon_sql = "SELECT UUID, Description FROM Beacon;";
+    ret                     = sqlite3_prepare_v2(db, beacon_sql, -1, &stmt, NULL);
+    if (ret != SQLITE_OK)
+    {
+        printf("Failed to prepare Beacon statement: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+        return;
+    }
+
+    printf("-----------------------------------------\n");
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const unsigned char * uuid        = sqlite3_column_text(stmt, 0);
+        const unsigned char * description = sqlite3_column_text(stmt, 1);
+
+        sqlite3_stmt * room_stmt = NULL;
+        const char * room_sql    = "SELECT Mediator.Room FROM Signal "
+                                   "JOIN Mediator ON Signal.MediatorUID = Mediator.UID "
+                                   "WHERE Signal.BeaconUUID = ? AND Signal.Timestamp >= ? AND Signal.Distance <= ? "
+                                   "ORDER BY Signal.Distance ASC LIMIT 1;";
+
+        ret = sqlite3_prepare_v2(db, room_sql, -1, &room_stmt, NULL);
+        if (ret != SQLITE_OK)
+        {
+            printf("Failed to prepare Room statement for UUID: %s\n", sqlite3_errmsg(db));
+            sqlite3_close(db);
+            return;
+        }
+
+        sqlite3_bind_text(room_stmt, 1, reinterpret_cast<const char *>(uuid), -1, SQLITE_STATIC); // Beacon.UUID
+        sqlite3_bind_text(room_stmt, 2, sentinel.c_str(), -1, SQLITE_STATIC);                     // Sentinel (Timestamp)
+        sqlite3_bind_int(room_stmt, 3, threshold);                                                // RSSI Threshold
+
+        if (sqlite3_step(room_stmt) == SQLITE_ROW)
+        {
+            const unsigned char * room = sqlite3_column_text(room_stmt, 0);
+            printf("%s: %s\n", description, room);
+        }
+        else
+        {
+            const unsigned char * room = reinterpret_cast<const unsigned char *>("absence");
+            printf("%s: %s\n", description, room);
+        }
+
+        sqlite3_finalize(room_stmt);
+    }
+    printf("-----------------------------------------\n");
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+}
+
+void startPeriodicEstimation(int threshold)
+{
+    char * sentinel = getTimestamp();
+    while (true)
+    {
+        estimate_location_from_DB(sentinel, threshold);
+        sentinel = getTimestamp();
+        std::this_thread::sleep_for(std::chrono::seconds(30));
+    }
+}
+
 void ApplicationInit()
 {
     // Clear out the device database
@@ -715,13 +775,11 @@ void ApplicationInit()
     // Setup Location Tracking System
     ChipLogProgress(DeviceLayer, "Initializing Location Tracking System...");
 
-    // 各人物エンティティの初期化
     Person1.SetReachable(true);
     Person2.SetReachable(true);
     Person3.SetReachable(true);
     Person4.SetReachable(true);
 
-    // 初期位置を設定
     Person1.SetEntityID("person_001");
     Person1.SetEntityLocation("Entrance");
 
@@ -734,7 +792,6 @@ void ApplicationInit()
     Person4.SetEntityID("person_004");
     Person4.SetEntityLocation("Kitchen");
 
-    // コールバック設定
     Person1.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
     Person2.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
     Person3.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
@@ -781,6 +838,7 @@ void ApplicationShutdown() {}
 
 int main(int argc, char * argv[])
 {
+    std::thread estimationThread(startPeriodicEstimation, 10);
     if (ChipLinuxAppInit(argc, argv) != 0)
     {
         return -1;
