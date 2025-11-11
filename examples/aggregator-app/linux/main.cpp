@@ -55,6 +55,7 @@ const EmberAfDeviceType gBridgedTempSensorDeviceTypes[] = { { DEVICE_TYPE_TEMP_S
 
 #include <cassert>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -133,15 +134,10 @@ DECLARE_DYNAMIC_CLUSTER(EntityLocation::Id, entityLocationAttrs, ZAP_CLUSTER_MAS
 
 // Declare Bridged Light endpoint
 DECLARE_DYNAMIC_ENDPOINT(bridgedEntityLoEndpoint, bridgedEntityLocationClusters);
-DataVersion gPerson1DataVersions[ArraySize(bridgedEntityLocationClusters)];
-DataVersion gPerson2DataVersions[ArraySize(bridgedEntityLocationClusters)];
-DataVersion gPerson3DataVersions[ArraySize(bridgedEntityLocationClusters)];
-DataVersion gPerson4DataVersions[ArraySize(bridgedEntityLocationClusters)];
 
-DeviceEntityLocation Person1("Person 1", "Unknown", "person_001", "Unknown Location");
-DeviceEntityLocation Person2("Person 2", "Unknown", "person_002", "Unknown Location");
-DeviceEntityLocation Person3("Person 3", "Unknown", "person_003", "Unknown Location");
-DeviceEntityLocation Person4("Person 4", "Unknown", "person_004", "Unknown Location");
+// Dynamic person data - will be initialized based on Beacon table
+std::vector<DeviceEntityLocation *> gPersons;
+std::vector<std::unique_ptr<DataVersion[]>> gPersonDataVersions;
 
 // REVISION DEFINITIONS:
 // =================================================================================
@@ -568,7 +564,7 @@ const int16_t oneDegree = 100;
 
 void UpdatePersonLocation(DeviceEntityLocation * person, const std::string & newLocation)
 {
-    if (person->IsReachable())
+    if (person && person->IsReachable())
     {
         person->SetEntityLocation(newLocation);
         ChipLogProgress(DeviceLayer, "Person %s location updated to: %s", person->GetName(), newLocation.c_str());
@@ -579,11 +575,9 @@ void DisplayLocationSystem()
 {
     ChipLogProgress(DeviceLayer, "=== Location Tracking System Status ===");
 
-    DeviceEntityLocation * persons[] = { &Person1, &Person2, &Person3, &Person4 };
-
-    for (int i = 0; i < 4; i++)
+    for (size_t i = 0; i < gPersons.size(); i++)
     {
-        DeviceEntityLocation * person = persons[i];
+        DeviceEntityLocation * person = gPersons[i];
         ChipLogProgress(DeviceLayer, "%s (ID: %s) - Location: %s [%s]", person->GetName(), person->GetEntityID().c_str(),
                         person->GetEntityLocation().c_str(), person->IsReachable() ? "Online" : "Offline");
     }
@@ -595,40 +589,14 @@ void SimulateLocationTracking()
     static int simulation_step = 0;
     simulation_step++;
 
-    switch (simulation_step % 8)
+    const char * locations[] = { "Living Room", "Kitchen", "Office", "Bedroom", "Bathroom", "Garden", "Entrance" };
+    int num_locations        = sizeof(locations) / sizeof(locations[0]);
+
+    for (size_t i = 0; i < gPersons.size(); i++)
     {
-    case 0:
-        UpdatePersonLocation(&Person1, "Living Room");
-        UpdatePersonLocation(&Person2, "Kitchen");
-        break;
-    case 1:
-        UpdatePersonLocation(&Person1, "Kitchen");
-        UpdatePersonLocation(&Person3, "Office");
-        break;
-    case 2:
-        UpdatePersonLocation(&Person2, "Bedroom");
-        UpdatePersonLocation(&Person4, "Living Room");
-        break;
-    case 3:
-        UpdatePersonLocation(&Person1, "Office");
-        UpdatePersonLocation(&Person2, "Living Room");
-        break;
-    case 4:
-        UpdatePersonLocation(&Person3, "Kitchen");
-        UpdatePersonLocation(&Person4, "Bedroom");
-        break;
-    case 5:
-        UpdatePersonLocation(&Person1, "Bedroom");
-        UpdatePersonLocation(&Person3, "Bathroom");
-        break;
-    case 6:
-        UpdatePersonLocation(&Person2, "Office");
-        UpdatePersonLocation(&Person4, "Kitchen");
-        break;
-    case 7:
-        UpdatePersonLocation(&Person1, "Garden");
-        UpdatePersonLocation(&Person2, "Entrance");
-        break;
+        int idx_i        = static_cast<int>(i);
+        int location_idx = (simulation_step + idx_i) % num_locations;
+        UpdatePersonLocation(gPersons[i], locations[location_idx]);
     }
 
     DisplayLocationSystem();
@@ -649,36 +617,30 @@ void * bridge_polling_thread(void * context)
             {
                 SimulateLocationTracking();
             }
-            if (ch == '1')
+            // Dynamic key handling for persons
+            if (ch >= '1' && ch <= '9')
             {
-                UpdatePersonLocation(&Person1, "Living Room");
-            }
-            if (ch == '2')
-            {
-                UpdatePersonLocation(&Person2, "Kitchen");
-            }
-            if (ch == '3')
-            {
-                UpdatePersonLocation(&Person3, "Office");
-            }
-            if (ch == '4')
-            {
-                UpdatePersonLocation(&Person4, "Bedroom");
+                int idx = ch - '1';
+                if (idx < (int) gPersons.size())
+                {
+                    UpdatePersonLocation(gPersons[idx], "Living Room");
+                }
             }
             if (ch == 'a')
             {
-                UpdatePersonLocation(&Person1, "Living Room");
-                UpdatePersonLocation(&Person2, "Living Room");
-                UpdatePersonLocation(&Person3, "Living Room");
-                UpdatePersonLocation(&Person4, "Living Room");
+                for (size_t i = 0; i < gPersons.size(); i++)
+                {
+                    UpdatePersonLocation(gPersons[i], "Living Room");
+                }
                 ChipLogProgress(DeviceLayer, "All persons moved to Living Room");
             }
             if (ch == 'd')
             {
-                UpdatePersonLocation(&Person1, "Living Room");
-                UpdatePersonLocation(&Person2, "Kitchen");
-                UpdatePersonLocation(&Person3, "Office");
-                UpdatePersonLocation(&Person4, "Bedroom");
+                const char * locations[] = { "Living Room", "Kitchen", "Office", "Bedroom", "Bathroom", "Garden", "Entrance" };
+                for (size_t i = 0; i < gPersons.size(); i++)
+                {
+                    UpdatePersonLocation(gPersons[i], locations[i % 7]);
+                }
                 ChipLogProgress(DeviceLayer, "Persons distributed to different rooms");
             }
             continue;
@@ -693,6 +655,62 @@ void * bridge_polling_thread(void * context)
 
 // -----------------------------------------------------------------------------
 std::string dbPath2 = getDBPath();
+
+// Load person data from Beacon table
+bool LoadPersonsFromDatabase()
+{
+    sqlite3 * db        = NULL;
+    sqlite3_stmt * stmt = NULL;
+    int ret             = sqlite3_open_v2(dbPath2.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL);
+    if (ret != SQLITE_OK)
+    {
+        ChipLogError(DeviceLayer, "Cannot open database: %s", sqlite3_errmsg(db));
+        return false;
+    }
+
+    const char * beacon_sql = "SELECT ID, Description FROM Beacon ORDER BY ID;";
+    ret                     = sqlite3_prepare_v2(db, beacon_sql, -1, &stmt, NULL);
+    if (ret != SQLITE_OK)
+    {
+        ChipLogError(DeviceLayer, "Failed to prepare Beacon statement: %s", sqlite3_errmsg(db));
+        sqlite3_close(db);
+        return false;
+    }
+
+    int count = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        int id                            = sqlite3_column_int(stmt, 0);
+        const unsigned char * description = sqlite3_column_text(stmt, 1);
+
+        if (description == NULL)
+        {
+            ChipLogError(DeviceLayer, "Beacon ID %d has NULL description", id);
+            continue;
+        }
+
+        std::string descStr    = reinterpret_cast<const char *>(description);
+        std::string personName = "Person " + std::to_string(count + 1);
+        std::string personId =
+            "person_" + std::string(description ? reinterpret_cast<const char *>(description) : std::to_string(id));
+
+        ChipLogProgress(DeviceLayer, "Loading Beacon %d: %s -> EntityID: %s", id, descStr.c_str(), descStr.c_str());
+
+        // Create new person with Description as the EntityID
+        DeviceEntityLocation * person = new DeviceEntityLocation(personName.c_str(), "Unknown",
+                                                                 descStr.c_str(), // Use Description as EntityID
+                                                                 "Unknown Location");
+
+        gPersons.push_back(person);
+        count++;
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    ChipLogProgress(DeviceLayer, "Loaded %d persons from Beacon table", count);
+    return count > 0;
+}
 
 void estimate_location_from_DB(const std::string & sentinel, int threshold)
 {
@@ -742,11 +760,33 @@ void estimate_location_from_DB(const std::string & sentinel, int threshold)
         {
             const unsigned char * room = sqlite3_column_text(room_stmt, 0);
             printf("%s: %s\n", description, room);
+
+            // Update Location table: ID->description, Location->room
+            for (size_t i = 0; i < gPersons.size(); i++)
+            {
+                if (gPersons[i]->GetEntityID() == reinterpret_cast<const char *>(description))
+                {
+                    gPersons[i]->SetEntityID(reinterpret_cast<const char *>(description));
+                    gPersons[i]->SetEntityLocation(reinterpret_cast<const char *>(room));
+                    break;
+                }
+            }
         }
         else
         {
             const unsigned char * room = reinterpret_cast<const unsigned char *>("absence");
             printf("%s: %s\n", description, room);
+
+            // Update Location table: ID->description, Location->room
+            for (size_t i = 0; i < gPersons.size(); i++)
+            {
+                if (gPersons[i]->GetEntityID() == reinterpret_cast<const char *>(description))
+                {
+                    gPersons[i]->SetEntityID(reinterpret_cast<const char *>(description));
+                    gPersons[i]->SetEntityLocation(reinterpret_cast<const char *>(room));
+                    break;
+                }
+            }
         }
 
         sqlite3_finalize(room_stmt);
@@ -775,27 +815,23 @@ void ApplicationInit()
     // Setup Location Tracking System
     ChipLogProgress(DeviceLayer, "Initializing Location Tracking System...");
 
-    Person1.SetReachable(true);
-    Person2.SetReachable(true);
-    Person3.SetReachable(true);
-    Person4.SetReachable(true);
+    // Load persons from Beacon table
+    if (!LoadPersonsFromDatabase())
+    {
+        ChipLogError(DeviceLayer, "Failed to load persons from database. Using default configuration.");
+        // Fallback to at least one person if database load fails
+        DeviceEntityLocation * fallbackPerson = new DeviceEntityLocation("Person 1", "Unknown", "person_001", "Unknown Location");
+        gPersons.push_back(fallbackPerson);
+    }
 
-    Person1.SetEntityID("person_001");
-    Person1.SetEntityLocation("Entrance");
-
-    Person2.SetEntityID("person_002");
-    Person2.SetEntityLocation("Living Room");
-
-    Person3.SetEntityID("person_003");
-    Person3.SetEntityLocation("Office");
-
-    Person4.SetEntityID("person_004");
-    Person4.SetEntityLocation("Kitchen");
-
-    Person1.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
-    Person2.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
-    Person3.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
-    Person4.SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
+    // Initialize all persons
+    for (size_t i = 0; i < gPersons.size(); i++)
+    {
+        gPersons[i]->SetReachable(true);
+        gPersons[i]->SetChangeCallback(&HandleDeviceEntityLocationStatusChanged);
+        ChipLogProgress(DeviceLayer, "Initialized %s with EntityID: %s", gPersons[i]->GetName(),
+                        gPersons[i]->GetEntityID().c_str());
+    }
 
     // Set starting endpoint id where dynamic endpoints will be assigned, which
     // will be the next consecutive endpoint id after the last fixed endpoint.
@@ -807,21 +843,24 @@ void ApplicationInit()
     // supported clusters so that ZAP will generated the requisite code.
     emberAfEndpointEnableDisable(emberAfEndpointFromIndex(static_cast<uint16_t>(emberAfFixedEndpointCount() - 1)), false);
 
-    // Add Person entities to Matter endpoints
-    AddDeviceEndpoint(&Person1, &bridgedEntityLoEndpoint, Span<const EmberAfDeviceType>(gBridgedEntityLocationDeviceTypes),
-                      Span<DataVersion>(gPerson1DataVersions), 1);
-    AddDeviceEndpoint(&Person2, &bridgedEntityLoEndpoint, Span<const EmberAfDeviceType>(gBridgedEntityLocationDeviceTypes),
-                      Span<DataVersion>(gPerson2DataVersions), 1);
-    AddDeviceEndpoint(&Person3, &bridgedEntityLoEndpoint, Span<const EmberAfDeviceType>(gBridgedEntityLocationDeviceTypes),
-                      Span<DataVersion>(gPerson3DataVersions), 1);
-    AddDeviceEndpoint(&Person4, &bridgedEntityLoEndpoint, Span<const EmberAfDeviceType>(gBridgedEntityLocationDeviceTypes),
-                      Span<DataVersion>(gPerson4DataVersions), 1);
+    // Add Person entities to Matter endpoints dynamically
+    for (size_t i = 0; i < gPersons.size(); i++)
+    {
+        // Create data versions for this person
+        auto dataVersions = std::unique_ptr<DataVersion[]>(new DataVersion[ArraySize(bridgedEntityLocationClusters)]);
+
+        AddDeviceEndpoint(gPersons[i], &bridgedEntityLoEndpoint, Span<const EmberAfDeviceType>(gBridgedEntityLocationDeviceTypes),
+                          Span<DataVersion>(dataVersions.get(), ArraySize(bridgedEntityLocationClusters)), 1);
+
+        gPersonDataVersions.push_back(std::move(dataVersions));
+    }
 
     // 初期ステータス表示
     DisplayLocationSystem();
 
     ChipLogProgress(DeviceLayer, "Location Tracking System initialized successfully!");
-    ChipLogProgress(DeviceLayer, "Commands: p=status, s=simulate, 1-4=move person, a=gather all, d=distribute");
+    ChipLogProgress(DeviceLayer, "Loaded %d persons from Beacon table", (int) gPersons.size());
+    ChipLogProgress(DeviceLayer, "Commands: p=status, s=simulate, 1-9=move person, a=gather all, d=distribute");
 
     {
         pthread_t poll_thread;
