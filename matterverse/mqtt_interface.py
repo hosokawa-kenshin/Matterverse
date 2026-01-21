@@ -37,7 +37,7 @@ class MQTTInterface:
         # Data model access
         self._data_model = None
         self._database = None
-        self._polling_manager = None
+        # self._polling_manager = None
 
     def set_data_model(self, data_model):
         """Set data model dictionary reference."""
@@ -47,9 +47,9 @@ class MQTTInterface:
         """Set database reference."""
         self._database = database
 
-    def set_polling_manager(self, polling_manager):
-        """Set polling manager reference for command handling."""
-        self._polling_manager = polling_manager
+    # def set_polling_manager(self, polling_manager):
+        # """Set polling manager reference for command handling."""
+        # self._polling_manager = polling_manager
 
     def set_command_callback(self, callback: Callable):
         """Set callback for handling MQTT commands."""
@@ -139,21 +139,21 @@ class MQTTInterface:
         # Execute command via callback with polling pause/resume
         if self._command_callback:
             async def execute_command_with_polling_control():
-                try:
+                # try:
                     # Pause all polling for command execution
-                    if self._polling_manager:
-                        self.logger.info("Pausing polling for MQTT command execution...")
-                        await self._polling_manager.pause_polling_for_command()
-                    
+                    # if self._polling_manager:
+                        # self.logger.info("Pausing polling for MQTT command execution...")
+                        # await self._polling_manager.pause_polling_for_command()
+
                     # Execute the command
                     self.logger.info(f"Executing MQTT command: {chip_command}")
                     await self._command_callback(chip_command)
-                    
-                finally:
+
+                # finally:
                     # Resume all polling after command execution
-                    if self._polling_manager:
-                        self.logger.info("Resuming polling after MQTT command execution...")
-                        await self._polling_manager.resume_polling_after_command()
+                    # if self._polling_manager:
+                        # self.logger.info("Resuming polling after MQTT command execution...")
+                        # await self._polling_manager.resume_polling_after_command()
 
             def run_in_thread():
                 asyncio.run(execute_command_with_polling_control())
@@ -306,6 +306,9 @@ class MQTTInterface:
             return False
 
         try:
+            with open("mqtt_debug.log", "a") as f:
+                f.write(json_str + "\n")
+                f.flush()
             json_data = json.loads(json_str)
             device_data = json_data.get("device", {})
             node_id = device_data.get("node")

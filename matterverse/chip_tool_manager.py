@@ -8,7 +8,7 @@ import json
 import os
 import re
 import time
-from typing import Optional, Dict, Any, Callable
+from typing import List, Optional, Dict, Any, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from lark import Lark, Transformer
@@ -94,7 +94,9 @@ class ChipToolParser:
                 "SendReadRequest ReadClient",
                 "MoveToState ReadClient",
                 "All ReadHandler-s are clean",
-                "data version filters provided"
+                "data version filters provided",
+                "SubscribeResponse is received",
+                "Refresh LivenessCheckTime for"
             ]
             if any(pattern in line for pattern in skip_patterns):
                 continue
@@ -941,3 +943,649 @@ class ProcessBasedChipToolManager:
             self.logger.error(f"Error extracting device type data: {e}")
 
         return []
+
+
+class InteractiveSubscriptionParser:
+    """
+    既存 ChipToolParser を活用したストリーミング対応パーサー
+
+    chip-tool の interactive モード出力をリアルタイムでパース
+    """
+
+    def __init__(self, data_model=None):
+        """
+        Initialize parser.
+
+        Args:
+            data_model: データモデル（クラスタ・属性名の解決用）
+        """
+        self.chip_parser = ChipToolParser()  # 既存パーサーを活用
+        self.data_model = data_model
+        self.logger = get_chip_logger()
+
+        # ストリーミング処理用バッファ
+        self._buffer = ""
+        self._max_buffer_size = 5000000  # 約5MB
+        self.has_revision = False
+
+
+    def extract_attribute_data_ib_blocks(self, text: str) -> List[str]:
+        results = []
+
+        key = "AttributeDataIB = {"
+        i = 0
+        n = len(text)
+
+        while i < n:
+            start = text.find(key, i)
+            if start == -1:
+                break
+
+            brace_count = 0
+            j = start
+
+            while j < n:
+                if text[j] == "{":
+                    brace_count += 1
+                elif text[j] == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # AttributeDataIB 全体を取得
+                        block = text[start : j + 1]
+                        results.append(block.strip())
+                        i = j + 1
+                        break
+                j += 1
+            else:
+                break
+
+        return results
+
+    def parse_line(self, line: str) -> Optional[list[Dict[str, Any]]]:
+        """
+        1行ずつ受け取ってバッファに蓄積し、完成したレポートをパース
+
+        Args:
+            line: chip-tool からの1行の出力
+
+        Returns:
+            属性データのリスト（レポート完成時）、または None
+        """
+        # 生の行をバッファに追加
+        self._buffer += line + "\n"
+        with open("chiptool_stream.log", "a", encoding="utf-8") as f:
+          f.write(line + "\n")
+          f.flush()
+
+        # バッファサイズ制限
+        if len(self._buffer) > self._max_buffer_size:
+            # 後半を保持（前半を削除）
+            self._buffer = self._buffer[-25000:]
+            self.logger.debug("Buffer trimmed to prevent memory overflow")
+
+        # ReportDataMessage の終了を検出
+        # InteractionModelRevision があり、かつその後に } がある必要がある
+        if not self.has_revision:
+            self.has_revision = 'InteractionModelRevision' in line
+        has_closing_brace = self.has_revision and '}' in line
+
+        if not has_closing_brace:
+            return None
+
+        try:
+            self.has_revision = False
+            self.logger.debug(f"Processing complete report, buffer size: {len(self._buffer)} bytes")
+            tmp_buffer = self._buffer
+            self._buffer = ""
+
+            formatted = self.chip_parser.delete_garbage_from_output(tmp_buffer)
+            if not formatted:
+                self.logger.debug("No valid data after formatting")
+                self._buffer = ""
+                return None
+
+            self.logger.debug(f"Formatted output ({len(formatted)} bytes): {formatted[:200]}...")
+
+            blocks = self.extract_attribute_data_ib_blocks(formatted)
+
+            self.logger.debug(f"Extracted {len(blocks)} blocks")
+
+            results = []
+            for block in blocks:
+                self.logger.debug(f"Processing block ({len(block)} bytes): {block[:100]}...")
+                # AttributeDataIB ブロックを処理
+                if 'AttributeDataIB' in block:
+                    self.logger.debug("Block contains AttributeDataIB, extracting...")
+                    attr_data = self._extract_attribute_data(block)
+                    if attr_data:
+                        results.append(attr_data)
+                        self.logger.debug(f"Successfully extracted: {attr_data}")
+                    else:
+                        self.logger.warning("Failed to extract attribute data from block")
+                else:
+                    self.logger.debug("Block does not contain AttributeDataIB, skipping")
+
+            if results:
+                self.logger.info(f"Parsed {len(results)} attribute reports")
+                return results
+            else:
+                self.logger.debug("No results extracted from blocks")
+
+        except Exception as e:
+            self.logger.error(f"Parse error: {e}", exc_info=True)
+            self._buffer = ""  # エラー時もクリア
+
+        return None
+
+    def _extract_attribute_data(self, block: str) -> Optional[Dict[str, Any]]:
+        """
+        ブロックから属性データを抽出
+
+        Args:
+            block: AttributeDataIB ブロックの文字列
+
+        Returns:
+            属性データ辞書、または None
+        """
+        data = {}
+
+        # NodeID（delete_garbage_from_output が挿入済み）
+        match = re.search(r'NodeID\s*=\s*(0x[0-9a-fA-F]+)', block)
+        if match:
+            data['node_id'] = int(match.group(1), 16)
+        else:
+            self.logger.warning("NodeID not found in block")
+            return None  # NodeID 必須
+
+        # Endpoint（16進数）
+        match = re.search(r'Endpoint\s*=\s*0x([0-9a-fA-F]+)', block)
+        if match:
+            data['endpoint'] = int(match.group(1), 16)
+        else:
+            # 10進数も試す（後方互換性）
+            match = re.search(r'Endpoint\s*=\s*(\d+)', block)
+            if match:
+                data['endpoint'] = int(match.group(1))
+
+        # Cluster（16進数）
+        match = re.search(r'Cluster\s*=\s*0x([0-9a-fA-F]+)', block)
+        if match:
+            cluster_id = int(match.group(1), 16)
+            data['cluster'] = cluster_id
+
+            cluster_id_str = f"0x{cluster_id:04X}"
+            # クラスター名を取得
+            if self.data_model:
+                data['cluster_name'] = self.data_model.get_cluster_name_by_id(cluster_id_str)
+            else:
+                data['cluster_name'] = f"0x{cluster_id:04X}"
+
+        # Attribute（16進数、アンダースコア付き対応）
+        match = re.search(r'Attribute\s*=\s*0x([0-9a-fA-F_]+)', block)
+        if match:
+            attr_hex = match.group(1).replace('_', '')
+            attribute_id = int(attr_hex, 16)
+            data['attribute'] = attribute_id
+            attribute_id_str = f"0x{attribute_id:04X}"
+
+            # 属性名を取得
+            if self.data_model and 'cluster' in data:
+                data['attribute_name'] = self.data_model.get_attribute_name_by_code(
+                    cluster_id_str, attribute_id_str
+                )
+            else:
+                data['attribute_name'] = f"0x{attribute_id:04X}"
+
+        # DataVersion
+        match = re.search(r'DataVersion\s*=\s*0x([0-9a-fA-F]+)', block)
+        if match:
+            data['data_version'] = int(match.group(1), 16)
+
+        # Data 値（型判定）
+        # 注意: delete_garbage_from_output で "(unsigned)" などが削除される
+
+        # Bool 型: Data = true / Data = false
+
+        match = re.search(r'Data\s*=\s*(true|false)', block, re.IGNORECASE)
+        if match:
+            data['value'] = match.group(1).lower()
+            data['value_type'] = 'bool'
+        else:
+            # 数値型: Data = 123 または Data = -5
+            match = re.search(r'Data\s*=\s*(-?\d+)', block)
+            if match:
+                data['value'] = int(match.group(1))
+                data['value_type'] = 'int'
+            else:
+                # 文字列型: Data = "text"
+                match = re.search(r'Data\s*=\s*"([^"]*)"', block)
+                if match:
+                    data['value'] = match.group(1)
+                    data['value_type'] = 'string'
+                else:
+                    match = re.search(r'Data\s*=\s*\[\s*\{(.*?)\}\s*\]',block,re.DOTALL)
+                    if match:
+                        content = match.group(1).strip()
+                        data['value'] = '{ ' + content + ' }'
+                        data['value_type'] = 'struct'
+                    else:
+                        match = re.search(r'Data\s*=\s*\[\s*(.*?)\s*\]',block,re.DOTALL)
+                        if match:
+                            content = match.group(1).strip()
+                            items = [item.strip() for item in content.split(',')]
+                            data['value'] = items
+                            data['value_type'] = 'array'
+                        else:
+                    # その他（配列、構造体など）
+                    # より詳細な解析が必要な場合は拡張
+                            self.logger.warning(f"Could not extract value from block: {block}")
+                            data['value'] = None
+                            data['value_type'] = 'unknown'
+
+        # 必須フィールドチェック
+        required_fields = ['node_id', 'endpoint', 'cluster', 'attribute']
+        if all(k in data for k in required_fields):
+            self.logger.debug(
+                f"Extracted: NodeID={data['node_id']}, "
+                f"Endpoint={data['endpoint']}, "
+                f"Cluster=0x{data['cluster']:04X}, "
+                f"Attribute=0x{data['attribute']:04X}, "
+                f"Value={data.get('value')}"
+            )
+            return data
+        else:
+            missing = [f for f in required_fields if f not in data]
+            self.logger.warning(f"Missing required fields: {missing}")
+
+        return None
+
+
+class InteractiveChipToolManager:
+    """Interactive モードでの chip-tool 管理"""
+
+    def __init__(self, chip_tool_path: str, commissioning_dir: str,
+                 paa_cert_path: str, database, data_model, debug_file: str = None):
+        self.chip_tool_path = chip_tool_path
+        self.commissioning_dir = commissioning_dir
+        self.paa_cert_path = paa_cert_path
+        self.database = database
+        self.data_model = data_model
+        self.logger = get_chip_logger()
+
+        self.process: Optional[asyncio.subprocess.Process] = None
+        self.output_task: Optional[asyncio.Task] = None
+
+        # ChipToolParser を転用したパーサー
+        self.parser = InteractiveSubscriptionParser(data_model)
+
+        self._running = False
+        self._write_lock = asyncio.Lock()
+        self._notification_callback = None
+
+        # デバッグファイル出力
+        self.debug_file = debug_file or "/tmp/interactive_chip_tool_debug.log"
+        self._debug_enabled = True
+        # ファイルをクリア
+        if self._debug_enabled:
+            try:
+                with open(self.debug_file, 'w') as f:
+                    f.write(f"=== Interactive ChipTool Debug Log ===\n")
+                    f.write(f"Started at: {datetime.now().isoformat()}\n\n")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize debug file: {e}")
+                self._debug_enabled = False
+
+    def _write_debug(self, message: str):
+        """デバッグメッセージをファイルに書き込み"""
+        if not self._debug_enabled:
+            return
+        try:
+            with open(self.debug_file, 'a') as f:
+                f.write(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {message}\n")
+        except Exception as e:
+            self.logger.warning(f"Failed to write debug: {e}")
+
+    async def start(self):
+        """Interactive モードで chip-tool を起動"""
+        if self._running:
+            self.logger.warning("chip-tool is already running")
+            return
+
+        try:
+            # chip-tool を interactive モードで起動
+            # 重要: バッファリング問題を回避するための設定
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'  # Python のバッファリング無効化
+
+            cmd = [
+                self.chip_tool_path,
+                "interactive",
+                "start",
+                "--storage-directory", self.commissioning_dir,
+                "--paa-trust-store-path", self.paa_cert_path,
+            ]
+
+            self.logger.info(f"Starting chip-tool: {' '.join(cmd)}")
+
+            self.process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=os.path.dirname(self.chip_tool_path),
+                env=env,
+            )
+
+            self._running = True
+
+            # 出力監視タスクを起動
+            self.output_task = asyncio.create_task(self._monitor_output())
+
+            self.logger.info("chip-tool interactive mode started")
+
+            # プロセス起動待機
+            await asyncio.sleep(2.0)
+
+        except Exception as e:
+            self.logger.error(f"Failed to start chip-tool: {e}")
+            raise
+
+    async def stop(self):
+        """chip-tool プロセスを停止"""
+        if not self._running:
+            return
+
+        self._running = False
+
+        # 出力監視タスクをキャンセル
+        if self.output_task and not self.output_task.done():
+            self.output_task.cancel()
+            try:
+                await self.output_task
+            except asyncio.CancelledError:
+                pass
+
+        # プロセスを終了
+        if self.process and self.process.returncode is None:
+            try:
+                # 終了コマンドを送信
+                async with self._write_lock:
+                    self.process.stdin.write(b"quit\n")
+                    await self.process.stdin.drain()
+
+                await asyncio.wait_for(self.process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                self.process.terminate()
+                await asyncio.wait_for(self.process.wait(), timeout=3.0)
+            except Exception as e:
+                self.logger.error(f"Error stopping process: {e}")
+                self.process.kill()
+
+        self.logger.info("chip-tool stopped")
+
+    async def send_command(self, command: str) -> bool:
+        """
+        Interactive モードの chip-tool にコマンドを送信
+
+        Args:
+            command: 実行するコマンド (例: "any subscribe-by-id 0x0006 0x0000 1 0 0 100 1000")
+
+        Returns:
+            送信成功可否
+        """
+        if not self._running or not self.process:
+            self.logger.error("chip-tool is not running")
+            return False
+
+        try:
+            async with self._write_lock:
+                cmd_bytes = f"{command}\n".encode('utf-8')
+                self._write_debug(f"[SEND_CMD] Command: {command}")
+                self._write_debug(f"[SEND_CMD] Bytes: {cmd_bytes}")
+                self.process.stdin.write(cmd_bytes)
+                await self.process.stdin.drain()
+
+            self.logger.debug(f"Command sent: {command}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to send command: {e}")
+            self._write_debug(f"[SEND_CMD] Error: {e}")
+            return False
+
+    async def _monitor_output(self):
+        """stdout/stderr を監視してパース"""
+        try:
+            while self._running:
+                # stdout と stderr を並行して読み取り
+                tasks = []
+
+                if self.process.stdout:
+                    tasks.append(self._read_stream(self.process.stdout, 'stdout'))
+
+                if self.process.stderr:
+                    tasks.append(self._read_stream(self.process.stderr, 'stderr'))
+
+                if not tasks:
+                    break
+
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        except asyncio.CancelledError:
+            self.logger.info("Output monitoring cancelled")
+        except Exception as e:
+            self.logger.error(f"Error in output monitoring: {e}")
+
+    async def _read_stream(self, stream, stream_name: str):
+        """
+        ストリームから1行ずつ読み取り
+
+        注意: 常時起動プロセスではバッファリングの問題で readline() が
+        即座に返らない可能性があるため、以下の対策を実装：
+        1. 環境変数 PYTHONUNBUFFERED=1 でバッファリング無効化
+        2. タイムアウト付き read を使用
+        """
+        try:
+            while self._running:
+                # タイムアウト付きで readline を実行
+                # 長時間ブロックを防ぐため 1 秒でタイムアウト
+                try:
+                    line = await asyncio.wait_for(
+                        stream.readline(),
+                        timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    # タイムアウトは正常（出力がない時）
+                    continue
+
+                if not line:
+                    # ストリーム終了
+                    self.logger.warning(f"{stream_name} closed")
+                    break
+
+                line_str = line.decode('utf-8', errors='replace').strip()
+
+                if line_str:
+                    # デバッグファイルに生ログを記録
+                    self._write_debug(f"[{stream_name}] {line_str}")
+
+                    # パーサーに渡す（複数の属性レポートが返る可能性あり）
+                    parsed_data_list = self.parser.parse_line(line_str)
+
+                    if parsed_data_list:
+                        self._write_debug(f"[PARSED] Found {len(parsed_data_list)} attribute(s)")
+                        # 複数の属性レポートを順次処理
+                        for parsed_data in parsed_data_list:
+                            self._write_debug(f"[PARSED] Data: {parsed_data}")
+                            await self._handle_parsed_data(parsed_data)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error reading {stream_name}: {e}")
+
+    async def _handle_parsed_data(self, parsed_data: Dict[str, Any]):
+        """パースされたデータを処理（DB更新・通知）"""
+        try:
+            node_id = parsed_data['node_id']
+            endpoint = parsed_data['endpoint']
+            cluster = parsed_data.get('cluster_name', parsed_data['cluster'])
+            attribute = parsed_data.get('attribute_name', parsed_data['attribute'])
+            new_value = str(parsed_data['value'])  # Convert to string for database
+
+            self._write_debug(f"[HANDLE] NodeID={node_id}, Endpoint={endpoint}, Cluster={cluster}, Attribute={attribute}, Value={new_value}")
+
+            # データベースから現在値を取得
+            current_value = self.database.get_attribute_value(
+                node_id, endpoint, cluster, attribute
+            )
+
+            self._write_debug(f"[DB_GET] Current value: {current_value}")
+
+            # 値が変更されているか、または初回（current_value が None）の場合に更新
+            should_update = (current_value is None) or (current_value != new_value)
+
+            if should_update:
+                if current_value is None:
+                    self._write_debug(f"[DB_UPDATE] Initial value: {new_value}")
+                    self.logger.info(
+                        f"Initial attribute value: NodeID={node_id}, Endpoint={endpoint}, "
+                        f"Cluster={cluster}, Attribute={attribute}, "
+                        f"Value={new_value}"
+                    )
+                else:
+                    self._write_debug(f"[DB_UPDATE] Changed: {current_value} -> {new_value}")
+                    self.logger.info(
+                        f"Attribute changed: NodeID={node_id}, Endpoint={endpoint}, "
+                        f"Cluster={cluster}, Attribute={attribute}, "
+                        f"Old={current_value}, New={new_value}"
+                    )
+
+                # データベース更新
+                success = self.database.update_attribute_value(
+                    node_id=node_id,
+                    endpoint=endpoint,
+                    cluster=cluster,
+                    attribute=attribute,
+                    value=new_value
+                )
+
+                self._write_debug(f"[DB_UPDATE] Success: {success}")
+
+                if not success:
+                    self.logger.warning(
+                        f"Failed to update attribute: NodeID={node_id}, Endpoint={endpoint}, "
+                        f"Cluster={cluster}, Attribute={attribute}"
+                    )
+                    return
+
+                if self._notification_callback:
+                    self._write_debug(f"[NOTIFY] Sending notification")
+                    await self._notification_callback({
+                        'node_id': node_id,
+                        'endpoint': endpoint,
+                        'cluster': cluster,
+                        'attribute': attribute,
+                        'value': new_value,
+                        'old_value': current_value
+                    })
+                else:
+                    self._write_debug(f"[NOTIFY] Skipped (initial value or no callback)")
+            else:
+                self._write_debug(f"[SKIP] Value unchanged: {current_value}")
+
+        except Exception as e:
+            self.logger.error(f"Error handling parsed data: {e}")
+
+    def set_notification_callback(self, callback: Callable):
+        """通知コールバックを設定"""
+        self._notification_callback = callback
+
+    async def subscribe_all_devices(self):
+        """全デバイスの全属性をサブスクライブ"""
+        try:
+            # データベースから全デバイス取得
+            devices = self.database.get_all_devices()
+
+            if not devices:
+                self.logger.warning("No devices found in database")
+                return
+
+            self.logger.info(f"Subscribing to {len(devices)} devices")
+
+            for device in devices:
+                await self._subscribe_device(device)
+
+                # デバイス間で少し間隔を空ける
+                await asyncio.sleep(0.5)
+
+            self.logger.info("All devices subscribed")
+
+        except Exception as e:
+            self.logger.error(f"Error subscribing to devices: {e}")
+
+    async def _subscribe_device(self, device: Dict[str, Any]):
+        """1つのデバイスの全属性をサブスクライブ"""
+        node_id = device['node']  # Fixed: 'node' not 'node_id'
+        endpoint = device['endpoint']
+
+        # デバイスの全クラスター・属性を取得
+        attributes = self.database.get_device_attributes(node_id, endpoint)
+
+        if not attributes:
+            self.logger.warning(f"No attributes for device {node_id}:{endpoint}")
+            return
+
+        # クラスターごとにグループ化
+        clusters = {}
+        for attr in attributes:
+            cluster_name = attr['cluster']  # Fixed: 'cluster' not 'cluster_id'
+            if cluster_name not in clusters:
+                clusters[cluster_name] = []
+            # 属性名を記録（実際にはワイルドカードを使うので使用しない）
+
+        # 各クラスターの全属性をサブスクライブ
+        for cluster_name in clusters.keys():
+            # データモデルからクラスターIDを取得
+            cluster_info = self.data_model.get_cluster_by_name(cluster_name)
+            if not cluster_info:
+                self.logger.warning(f"Cluster {cluster_name} not found in data model")
+                continue
+
+            cluster_id_raw = cluster_info.get('id', 0)
+
+            # cluster_id を整数に変換（16進数文字列の場合もある）
+            if isinstance(cluster_id_raw, str):
+                cluster_id = int(cluster_id_raw, 16) if cluster_id_raw.startswith('0x') else int(cluster_id_raw)
+            else:
+                cluster_id = int(cluster_id_raw)
+
+            # ワイルドカード属性でサブスクライブ
+            # any subscribe-by-id cluster-ids attribute-ids min-interval max-interval destination-id endpoint-ids
+            command = (
+                f"any subscribe-by-id "
+                f"0x{cluster_id:04X} "  # cluster-ids
+                f"0xFFFFFFFF "  # attribute-ids (wildcard)
+                f"0 "  # min-interval (seconds)
+                f"100 "  # max-interval (seconds)
+                f"{node_id} "  # destination-id (node-id)
+                f"{endpoint}"  # endpoint-ids
+            )
+
+            self._write_debug(f"[SUBSCRIBE] Prepared command: {command}")
+
+            success = await self.send_command(command)
+
+            if success:
+                self.logger.info(
+                    f"Subscribed: NodeID={node_id}, Endpoint={endpoint}, "
+                    f"Cluster={cluster_name} (0x{cluster_id:04X})"
+                )
+            else:
+                self.logger.error(
+                    f"Failed to subscribe: NodeID={node_id}, Endpoint={endpoint}, "
+                    f"Cluster={cluster_name} (0x{cluster_id:04X})"
+                )
+
+            # クラスター間で間隔を空ける
+            await asyncio.sleep(0.3)

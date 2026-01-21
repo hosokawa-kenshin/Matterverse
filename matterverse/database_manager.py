@@ -689,6 +689,77 @@ class Database:
             self.logger.error(f"Update attribute value error: {e}")
             return False
 
+    def get_attribute_value(self, node_id: int, endpoint: int, cluster: str, attribute: str) -> Optional[str]:
+        """
+        Get attribute value for comparison.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+            cluster: Cluster name
+            attribute: Attribute name
+
+        Returns:
+            Attribute value as string, or None if not found
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT Value FROM Attribute
+                WHERE NodeID = ? AND Endpoint = ? AND Cluster = ? AND Attribute = ?
+                """, (node_id, endpoint, cluster, attribute))
+
+                row = cursor.fetchone()
+                if row:
+                    return row['Value']
+                else:
+                    self.logger.debug(f"Attribute not found: NodeID={node_id}, Endpoint={endpoint}, "
+                                    f"Cluster={cluster}, Attribute={attribute}")
+                    return None
+        except sqlite3.Error as e:
+            self.logger.error(f"Get attribute value error: {e}")
+            return None
+
+    def get_device_attributes(self, node_id: int, endpoint: int) -> List[Dict[str, Any]]:
+        """
+        Get all attributes for a specific device endpoint.
+
+        Args:
+            node_id: Node ID
+            endpoint: Endpoint ID
+
+        Returns:
+            List of attribute dictionaries with cluster, attribute, type, and value
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT Cluster, Attribute, Type, Value FROM Attribute
+                WHERE NodeID = ? AND Endpoint = ?
+                ORDER BY Cluster, Attribute
+                """, (node_id, endpoint))
+
+                rows = cursor.fetchall()
+                attributes = []
+
+                for row in rows:
+                    attribute = {
+                        "cluster": row['Cluster'],
+                        "attribute": row['Attribute'],
+                        "type": row['Type'],
+                        "value": row['Value']
+                    }
+                    attributes.append(attribute)
+
+                self.logger.debug(f"Found {len(attributes)} attributes for NodeID={node_id}, Endpoint={endpoint}")
+                return attributes
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Get device attributes error: {e}")
+            return []
+
     def delete_device(self, node_id: int, endpoint: int) -> bool:
         """
         Delete device by node ID and endpoint.
@@ -757,6 +828,85 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Get attribute value error: {e}")
             return None
+
+    def update_attribute_value_from_status_report(self, json_str: str) -> bool:
+        """
+        Update attribute value from status report JSON string.
+
+        Args:
+            json_str: JSON string with status report data
+        try:
+            json_data = json.loads(json_str)
+            device_data = json_data.get("device", {})
+            node = device_data.get("node")
+            endpoint = device_data.get("endpoint")
+            data = json_data.get("data", {})
+            cluster = data.get("cluster")
+            attribute = data.get("attribute")
+            value = data.get("value")
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            json_data = json.loads(json_str)
+            device_data = json_data.get("device", {})
+            node = device_data.get("node")
+            endpoint = device_data.get("endpoint")
+            data = json_data.get("data", {})
+            cluster = data.get("cluster")
+            attribute = data.get("attribute")
+            value = data.get("value")
+
+            return self.update_attribute_value(node, endpoint, cluster, attribute, value)
+        except (json.JSONDecodeError, KeyError) as e:
+            self.logger.error(f"Update from status report error: {e}")
+            return False
+
+    async def convert_command_to_attribute(self, json_str: str) -> Optional[str]:
+        """
+        Convert command data to attribute data.
+
+        Args:
+            json_str: JSON string with command data
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # For simplicity, reuse publish_attribute_data method
+        json_data = json.loads(json_str)
+        device_data = json_data.get("device", {})
+        node = device_data.get("node")
+        endpoint = device_data.get("endpoint")
+        data = json_data.get("data", {})
+        cluster = data.get("cluster")
+        command = data.get("command")
+
+        if command not in ["on", "off", "toggle"] or cluster != "On/Off":
+            return
+        if command == "toggle":
+            current_value = await self.get_value_by_attribute(node, endpoint, cluster, "OnOff")
+            if current_value == "true":
+                value = "false"
+            else:
+                value = "true"
+        if command == "on":
+            value = "true"
+        if command == "off":
+            value= "false"
+
+        attribute_data = json.dumps({
+            "type": "status_report",
+            "device": {
+                "node": node,
+                "endpoint": endpoint
+            },
+            "data": {
+                "cluster": cluster,
+                "attribute": "OnOff",
+                "value": value
+            }
+        })
+        return attribute_data
 
     def update_device_name(self, node_id: int, endpoint: int, name: str) -> bool:
         """

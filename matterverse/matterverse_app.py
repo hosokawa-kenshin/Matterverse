@@ -12,11 +12,9 @@ from config import Config
 from logger import Logger, get_chip_logger
 from database_manager import Database
 from data_model_dictionary import DataModelDictionary
-from chip_tool_manager import ProcessBasedChipToolManager
+from chip_tool_manager import ProcessBasedChipToolManager, InteractiveChipToolManager
 from mqtt_interface import MQTTInterface
 from websocket_interface import WebSocketInterface
-from subscription_manager import SubscriptionManager
-from polling_subscription_manager import PollingSubscriptionManager, PollingConfig
 from device_manager import DeviceManager
 from api_interface import APIInterface
 
@@ -45,6 +43,7 @@ class MatterverseApplication:
         self.database = None
         self.data_model = None
         self.chip_tool = None
+        self.interactive_manager = None  # New: Interactive subscription manager
         self.mqtt = None
         self.websocket = None
         self.subscription_manager = None
@@ -82,6 +81,15 @@ class MatterverseApplication:
                 self.data_model
             )
 
+            # Initialize interactive subscription manager (new)
+            self.interactive_manager = InteractiveChipToolManager(
+                chip_tool_path=self.config.chip_tool_path,
+                commissioning_dir=self.config.commissioning_dir,
+                paa_cert_path=self.config.paa_cert_dir_path,
+                database=self.database,
+                data_model=self.data_model
+            )
+
             # Initialize WebSocket interface
             self.websocket = WebSocketInterface()
 
@@ -92,21 +100,6 @@ class MatterverseApplication:
             )
             self.mqtt.set_data_model(self.data_model)
             self.mqtt.set_database(self.database)
-
-            # Initialize polling subscription manager (new)
-            polling_config = PollingConfig(
-                polling_interval=self.config.get('polling_interval', 30),
-                max_concurrent_devices=self.config.get('max_concurrent_devices', 5),
-                command_timeout=self.config.get('command_timeout', 30),
-                device_error_stop=self.config.get('device_error_stop', True),
-                auto_discovery_interval=self.config.get('auto_discovery_interval', 300)
-            )
-            self.polling_manager = PollingSubscriptionManager(
-                self.chip_tool,
-                self.data_model,
-                self.database,
-                polling_config
-            )
 
             # Initialize device manager
             self.device_manager = DeviceManager(
@@ -122,7 +115,7 @@ class MatterverseApplication:
                 self.chip_tool,
                 self.data_model,
                 self.mqtt,
-                self.polling_manager
+                # self.polling_manager
             )
 
             # Setup callbacks
@@ -156,16 +149,13 @@ class MatterverseApplication:
     def _setup_callbacks(self):
         """Setup callbacks between components."""
         # Set chip tool parsed data callback (for direct command results)
-        # self.chip_tool.set_parsed_data_callback(self._handle_direct_command_result)
+        self.chip_tool.set_parsed_data_callback(self._handle_direct_command_result)
 
         # Set MQTT command callback
         self.mqtt.set_command_callback(self.chip_tool.execute_command)
 
-        # Set MQTT polling manager for command handling
-        self.mqtt.set_polling_manager(self.polling_manager)
-
-        # Set polling notification callback (new)
-        self.polling_manager.set_notification_callback(self._handle_polling_notification)
+        # Set interactive subscription notification callback (new)
+        self.interactive_manager.set_notification_callback(self._handle_interactive_notification)
 
         # Set API device commissioned callback
         self.api.set_device_commissioned_callback(self._handle_device_commissioned)
@@ -184,22 +174,59 @@ class MatterverseApplication:
         # except Exception as e:
         #     self.logger.error(f"Error handling direct command result: {e}")
 
-    async def _handle_polling_notification(self, json_data: str):
+    # async def _handle_polling_notification(self, json_data: str):
+    #     """
+    #     Handle polling notification data (new).
+
+    #     Args:
+    #         json_data: Polling notification data
+    #     """
+    #     try:
+    #         # Forward to MQTT
+    #         self.mqtt.publish_attribute_data(json_data)
+
+    #         # Broadcast to WebSocket clients
+    #         await self.websocket.send_parsed_data(json_data)
+
+    #     except Exception as e:
+    #         self.logger.error(f"Error handling polling notification: {e}")
+
+    async def _handle_interactive_notification(self, notification_data: dict):
         """
-        Handle polling notification data (new).
+        Handle interactive subscription notification (new).
 
         Args:
-            json_data: Polling notification data
+            notification_data: Notification data from interactive subscription
+                              Contains: node_id, endpoint, cluster, attribute, value, old_value
         """
         try:
+            # Convert to JSON format expected by MQTT interface
+            import json
+
+            # Format for WebSocket: flat structure
+            data = json.dumps({
+                "type": "status_report",
+                "device": {
+                    "node": notification_data['node_id'],
+                    "endpoint": notification_data['endpoint']
+                },
+                "data": {
+                    "cluster": notification_data['cluster'],
+                    "attribute": notification_data['attribute'],
+                    "value": notification_data['value'],
+                }
+            })
+
             # Forward to MQTT
-            self.mqtt.publish_attribute_data(json_data)
+            self.mqtt.publish_attribute_data(data)
 
             # Broadcast to WebSocket clients
-            await self.websocket.send_parsed_data(json_data)
+            await self.websocket.send_parsed_data(data)
+
+            self.logger.debug(f"Published interactive notification: {notification_data['cluster']}.{notification_data['attribute']} = {notification_data['value']}")
 
         except Exception as e:
-            self.logger.error(f"Error handling polling notification: {e}")
+            self.logger.error(f"Error handling interactive notification: {e}")
 
     async def _handle_device_commissioned(self):
         """
@@ -245,6 +272,15 @@ class MatterverseApplication:
             # Start chip tool
             await self.chip_tool.start()
 
+            # Start interactive subscription manager (new)
+            await self.interactive_manager.start()
+
+            # Subscribe to all devices via interactive mode (new)
+            interactive_task = asyncio.create_task(
+                self.interactive_manager.subscribe_all_devices()
+            )
+            self._background_tasks.append(interactive_task)
+
             # Connect MQTT
             if not self.mqtt.connect():
                 raise RuntimeError("Failed to connect to MQTT broker")
@@ -259,10 +295,10 @@ class MatterverseApplication:
             # self._background_tasks.append(subscription_task)
 
             # Start polling subscriptions (new approach)
-            polling_task = asyncio.create_task(
-                self.polling_manager.start_polling_all_devices()
-            )
-            self._background_tasks.append(polling_task)
+            # polling_task = asyncio.create_task(
+                # self.polling_manager.start_polling_all_devices()
+            # )
+            # self._background_tasks.append(polling_task)
 
             # Setup signal handlers
             self._setup_signal_handlers()
@@ -295,11 +331,18 @@ class MatterverseApplication:
                     self.logger.error(f"Error stopping subscriptions: {e}")
 
             # Stop polling (new)
-            if self.polling_manager:
+            # if self.polling_manager:
+                # try:
+                    # await self.polling_manager.stop_polling()
+                # except Exception as e:
+                    # self.logger.error(f"Error stopping polling: {e}")
+
+            # Stop interactive subscription manager (new)
+            if self.interactive_manager:
                 try:
-                    await self.polling_manager.stop_polling()
+                    await self.interactive_manager.stop()
                 except Exception as e:
-                    self.logger.error(f"Error stopping polling: {e}")
+                    self.logger.error(f"Error stopping interactive manager: {e}")
 
             # Cancel background tasks
             try:

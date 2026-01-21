@@ -2,6 +2,7 @@
 API interface for Matterverse application.
 Handles REST API endpoints and request processing.
 """
+from time import time
 from fastapi import FastAPI, WebSocket, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -58,7 +59,7 @@ class DeviceNameRequest(BaseModel):
 class APIInterface:
     """API interface for REST endpoints."""
 
-    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model, mqtt, polling_manager=None):
+    def __init__(self, device_manager, websocket_interface, chip_tool_manager, data_model, mqtt):
         """
         Initialize API interface.
 
@@ -68,7 +69,6 @@ class APIInterface:
             chip_tool_manager: ChipTool manager instance
             data_model: Data model dictionary instance
             mqtt: MQTT interface instance
-            polling_manager: Polling subscription manager instance (optional)
         """
         self.device_manager = device_manager
         self.websocket = websocket_interface
@@ -76,7 +76,7 @@ class APIInterface:
         self.database = device_manager.database
         self.data_model = data_model
         self.mqtt = mqtt
-        self.polling_manager = polling_manager
+        # self.polling_manager = polling_manager
         self.logger = get_api_logger()
 
         self.app = FastAPI(title="Matterverse API", version="1.0.0")
@@ -131,14 +131,6 @@ class APIInterface:
                 except Exception:
                     chip_tool_status = "unknown"
 
-                # Check polling status
-                polling_status = {}
-                if self.polling_manager:
-                    polling_status = {
-                        "is_paused": self.polling_manager.is_polling_paused(),
-                        "command_in_progress": self.polling_manager.is_command_in_progress()
-                    }
-
                 response = {
                     "status": "healthy" if db_status == "healthy" else "unhealthy",
                     "websocket_clients": self.websocket.connected_clients_count,
@@ -147,8 +139,8 @@ class APIInterface:
                     "version": "1.0.0"
                 }
 
-                if polling_status:
-                    response["polling"] = polling_status
+                # if polling_status:
+                    # response["polling"] = polling_status
 
                 return response
             except Exception as e:
@@ -172,11 +164,6 @@ class APIInterface:
             try:
                 args = ""
                 self.logger.info(f"Received command: {request.command}")
-
-                # Pause polling if polling manager is available
-                if self.polling_manager:
-                    await self.polling_manager.pause_polling_for_command()
-
                 try:
                     cluster_name = request.cluster.lower().replace("/", "").replace(" ", "")
                     if request.args == {}:
@@ -186,6 +173,35 @@ class APIInterface:
                         args = ' '.join([str(v) for v in request.args.values()])
                         command = f'{cluster_name} {request.command} {args} {request.node} {request.endpoint}'
                     response = await self.chip_tool.execute_command(command)
+
+                    # TODO: Handle command to attribute mapping for WebSocket updates
+                    # if command.startswith("onoff") and request.command in ["on", "off", "toggle"]:
+                        # current_value = await self.database.get_value_by_attribute(
+                            # request.node, request.endpoint, "On/Off", "OnOff"
+                        # )
+                        # command = f'{cluster_name} read on-off {request.node} {request.endpoint}'
+                        # response = await self.chip_tool.execute_command(command)
+                        # current_value = response.to_dict().get("data", {}).get("value", current_value)
+                        # Broadcast attribute update via WebSocket using send_parsed_data
+                    import json
+                    response_data = json.dumps({
+                        "type": "command_report",
+                        "device": {
+                            "node": request.node,
+                            "endpoint": request.endpoint
+                        },
+                        "data": {
+                            "cluster": request.cluster,
+                            "command": request.command,
+                            "status": response.status,
+                        }
+                    })
+
+                    attribute_data = await self.database.convert_command_to_attribute(response_data)
+                    if attribute_data:
+                        self.database.update_attribute_value_from_status_report(attribute_data)
+                        self.mqtt.publish_attribute_data(attribute_data)
+                        await self.websocket.send_parsed_data(attribute_data)
 
                     # Format response according to API design
                     if response.status == "success" and response.data:
@@ -202,19 +218,20 @@ class APIInterface:
                             "response": response.to_dict()
                         }
 
-                finally:
-                    if self.polling_manager:
-                        if request.cluster == "On/Off" and request.command in ["on", "off", "toggle"]:
-                          current_value = await self.database.get_value_by_attribute(
-                            request.node, request.endpoint, "On/Off", "OnOff"
-                          )
-                          await self.polling_manager.poll_single_attribute(request.node, request.endpoint, "On/Off", "OnOff", current_value)
-                        await self.polling_manager.resume_polling_after_command()
+                except Exception as e:
+                    raise e
+                    # if self.polling_manager:
+                        # if request.cluster == "On/Off" and request.command in ["on", "off", "toggle"]:
+                        #   current_value = await self.database.get_value_by_attribute(
+                            # request.node, request.endpoint, "On/Off", "OnOff"
+                        #   )
+                        #   await self.polling_manager.poll_single_attribute(request.node, request.endpoint, "On/Off", "OnOff", current_value)
+                        # await self.polling_manager.resume_polling_after_command()
 
             except Exception as e:
                 # Ensure polling is resumed even if there's an error
-                if self.polling_manager:
-                    await self.polling_manager.resume_polling_after_command()
+                # if self.polling_manager:
+                    # await self.polling_manager.resume_polling_after_command()
 
                 self.logger.error(f"Error executing command: {e}")
                 await self.websocket.send_error(f"Command execution failed: {str(e)}")
