@@ -22,6 +22,7 @@ class DeviceProvider with ChangeNotifier {
   StreamSubscription<StatusReport>? _statusReportSubscription;
   StreamSubscription<RegisterReport>? _registerReportSubscription;
   StreamSubscription<DeleteReport>? _deleteReportSubscription;
+  StreamSubscription<CommandReport>? _commandReportSubscription;
   StreamSubscription<WebSocketConnectionState>? _connectionStateSubscription;
 
   // Getters
@@ -74,6 +75,12 @@ class DeviceProvider with ChangeNotifier {
     _deleteReportSubscription = _webSocketService.deleteReports.listen(
       _handleDeleteReport,
       onError: (error) => _logger.e('Delete report stream error: $error'),
+    );
+
+    // Listen to command reports (command execution results)
+    _commandReportSubscription = _webSocketService.commandReports.listen(
+      _handleCommandReport,
+      onError: (error) => _logger.e('Command report stream error: $error'),
     );
 
     // Listen to connection state changes
@@ -412,6 +419,76 @@ class DeviceProvider with ChangeNotifier {
     }
   }
 
+  // Handle WebSocket command reports
+  void _handleCommandReport(CommandReport report) {
+    _logger.d('Processing command report: ${report.cluster}.${report.command} for ${report.node}:${report.endpoint}');
+
+    if (!report.isSuccess) {
+      _logger.w('Command failed: ${report.cluster}.${report.command}');
+      return;
+    }
+
+    // Handle toggle command for On/Off cluster
+    if (report.cluster == 'On/Off' && report.command == 'toggle') {
+      final deviceIndex = _devices.indexWhere(
+        (device) => device.node == report.node && device.endpoint == report.endpoint,
+      );
+
+      if (deviceIndex != -1) {
+        final device = _devices[deviceIndex];
+        final cluster = device.getCluster('On/Off');
+
+        if (cluster != null) {
+          final attribute = cluster.getAttribute('OnOff');
+          if (attribute != null) {
+            // Toggle the current value
+            final currentValue = _parseBoolValue(attribute.value);
+            final newValue = !currentValue;
+
+            // Create updated attribute
+            final updatedAttribute = Attribute(
+              name: attribute.name,
+              type: attribute.type,
+              value: newValue,
+            );
+
+            // Create updated cluster
+            final updatedAttributes = cluster.attributes.map((attr) {
+              return attr.name == 'OnOff' ? updatedAttribute : attr;
+            }).toList();
+
+            final updatedCluster = Cluster(
+              name: cluster.name,
+              attributes: updatedAttributes,
+              commands: cluster.commands,
+            );
+
+            // Create updated device
+            final updatedClusters = device.clusters.map((clstr) {
+              return clstr.name == 'On/Off' ? updatedCluster : clstr;
+            }).toList();
+
+            final updatedDevice = Device(
+              node: device.node,
+              endpoint: device.endpoint,
+              name: device.name,
+              deviceType: device.deviceType,
+              topicId: device.topicId,
+              clusters: updatedClusters,
+            );
+
+            _devices[deviceIndex] = updatedDevice;
+            notifyListeners();
+
+            _logger.d('Toggled device ${device.node}:${device.endpoint} OnOff to $newValue');
+          }
+        }
+      } else {
+        _logger.w('Received command report for unknown device: ${report.node}:${report.endpoint}');
+      }
+    }
+  }
+
   // Get device by node and endpoint
   Device? getDevice(int node, int endpoint) {
     try {
@@ -493,12 +570,25 @@ class DeviceProvider with ChangeNotifier {
     }
   }
 
+  // Helper method to parse bool values from various types
+  bool _parseBoolValue(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is String) {
+      final lowerValue = value.toLowerCase();
+      return lowerValue == 'true' || lowerValue == '1';
+    }
+    if (value is int) return value != 0;
+    return false;
+  }
+
   @override
   void dispose() {
     _logger.i('Disposing DeviceProvider');
     _statusReportSubscription?.cancel();
     _registerReportSubscription?.cancel();
     _deleteReportSubscription?.cancel();
+    _commandReportSubscription?.cancel();
     _connectionStateSubscription?.cancel();
     _webSocketService.dispose();
     _apiClient.dispose();

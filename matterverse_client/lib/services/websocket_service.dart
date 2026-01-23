@@ -23,6 +23,7 @@ class WebSocketService {
   final _statusReportController = StreamController<StatusReport>.broadcast();
   final _registerReportController = StreamController<RegisterReport>.broadcast();
   final _deleteReportController = StreamController<DeleteReport>.broadcast();
+  final _commandReportController = StreamController<CommandReport>.broadcast();
   final _connectionStateController = StreamController<WebSocketConnectionState>.broadcast();
 
   // Reconnection parameters
@@ -36,6 +37,7 @@ class WebSocketService {
   Stream<StatusReport> get statusReports => _statusReportController.stream;
   Stream<RegisterReport> get registerReports => _registerReportController.stream;
   Stream<DeleteReport> get deleteReports => _deleteReportController.stream;
+  Stream<CommandReport> get commandReports => _commandReportController.stream;
   Stream<WebSocketConnectionState> get connectionState => _connectionStateController.stream;
 
   WebSocketConnectionState get currentConnectionState => _connectionState;
@@ -100,6 +102,9 @@ class WebSocketService {
       } else if (wsMessage is DeleteReport) {
         _deleteReportController.add(wsMessage);
         _logger.d('Received delete report message');
+      } else if (wsMessage is CommandReport) {
+        _commandReportController.add(wsMessage);
+        _logger.d('Command report: ${wsMessage.cluster}.${wsMessage.command} status: ${wsMessage.status}');
       }
     } catch (e) {
       _logger.e('Error parsing WebSocket message: $e');
@@ -222,6 +227,8 @@ class WebSocketService {
     disconnect();
     _statusReportController.close();
     _registerReportController.close();
+    _deleteReportController.close();
+    _commandReportController.close();
     _connectionStateController.close();
   }
 }

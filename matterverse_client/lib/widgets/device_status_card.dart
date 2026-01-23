@@ -60,99 +60,102 @@ class _DeviceStatusCardState extends State<DeviceStatusCard> {
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header row with device type and status
-              Row(
-                children: [
-                  _buildDeviceIcon(),
-                  const Gap(8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.device.displayName,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          '${widget.device.node}:${widget.device.endpoint}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (isOnOffDevice) _buildStatusIndicator(),
-                ],
-              ),
-              const Gap(12),
-
-              // Device information
-              if (isPowerMeasurement) ...[
-                _buildPowerInfo(),
-                const Gap(8),
-              ],
-
-              // Control button
-              if (isOnOffDevice) ...[
-                const Gap(8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: widget.onToggle,
-                    icon: Icon(widget.device.isOn == true ? Icons.power_off : Icons.power),
-                    label: Text(widget.device.isOn == true ? 'オフ' : 'オン'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: widget.device.isOn == true
-                          ? Theme.of(context).colorScheme.secondary
-                          : Theme.of(context).colorScheme.primary,
-                      foregroundColor: widget.device.isOn == true
-                          ? Theme.of(context).colorScheme.onSecondary
-                          : Theme.of(context).colorScheme.onPrimary,
-                    ),
-                  ),
-                ),
-              ],
-
-              if (isLevelControlDevice) ...[
-                const Gap(8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: IntrinsicHeight(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header row with device type and status
+                Row(
                   children: [
-                    Text(
-                      '明るさ: ${_currentLevel.toInt() ?? 0}%',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    _buildDeviceIcon(),
+                    const Gap(8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.device.displayName,
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '${widget.device.node}:${widget.device.endpoint}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const Gap(4),
-                    Slider(
-                      value: (_currentLevel ?? 0).toDouble(),
-                      min: 0,
-                      max: 100,
-                      divisions: 100,
-                      onChanged: (value) {
-                        // TODO: Implement level change logic
-                        // current level range is 0 to 254
-                        // levelcontrol move-to-level 128 10 0 0 3 1
-                        setState(() {
-                          _currentLevel = value;
-                        });
-                      },
-                      onChangeEnd: (value) {
-                        final level = _convertPercentToLevel(value);
-                        widget.onChangeLevel?.call(level);
-                      },
-                    ),
+                    if (isOnOffDevice) _buildStatusIndicator(),
                   ],
-                )
+                ),
+                const Gap(12),
+
+                // Device information
+                if (isPowerMeasurement) ...[
+                  _buildPowerInfo(),
+                  const Gap(8),
+                ],
+
+                // Control button
+                if (isOnOffDevice) ...[
+                  const Gap(8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: widget.onToggle,
+                      icon: Icon(widget.device.isOn == true ? Icons.power_off : Icons.power),
+                      label: Text(widget.device.isOn == true ? 'オフ' : 'オン'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: widget.device.isOn == true
+                            ? Theme.of(context).colorScheme.secondary
+                            : Theme.of(context).colorScheme.primary,
+                        foregroundColor: widget.device.isOn == true
+                            ? Theme.of(context).colorScheme.onSecondary
+                            : Theme.of(context).colorScheme.onPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+
+                if (isLevelControlDevice) ...[
+                  const Gap(8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '明るさ: ${_currentLevel.toInt()}%',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      SizedBox(
+                        height: 40, // スライダーの高さを固定
+                        child: Slider(
+                          value: _currentLevel,
+                          min: 0,
+                          max: 100,
+                          divisions: 100,
+                          onChanged: (value) {
+                            setState(() {
+                              _currentLevel = value;
+                            });
+                          },
+                          onChangeEnd: (value) {
+                            final level = _convertPercentToLevel(value);
+                            widget.onChangeLevel?.call(level);
+                          },
+                        ),
+                      ),
+                    ],
+                  )
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

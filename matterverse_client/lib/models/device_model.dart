@@ -478,6 +478,8 @@ abstract class WebSocketMessage {
         return RegisterReport.fromJson(json);
       case 'delete_report':
         return DeleteReport.fromJson(json);
+      case 'command_report':
+        return CommandReport.fromJson(json);
       default:
         throw ArgumentError('Unknown WebSocket message type: $type');
     }
@@ -552,6 +554,33 @@ class DeleteReport extends WebSocketMessage {
   @override
   String toString() {
     return 'DeleteReport(node: $node, endpoint: $endpoint)';
+  }
+}
+
+class CommandReport extends WebSocketMessage {
+  CommandReport({
+    required Map<String, dynamic> device,
+    required Map<String, dynamic> data,
+  }) : super(type: 'command_report', device: device, data: data);
+
+  factory CommandReport.fromJson(Map<String, dynamic> json) {
+    return CommandReport(
+      device: json['device'] as Map<String, dynamic>,
+      data: json['data'] as Map<String, dynamic>,
+    );
+  }
+
+  int get node => device['node'] as int;
+  int get endpoint => device['endpoint'] as int;
+  String get cluster => data['cluster'] as String;
+  String get command => data['command'] as String;
+  String get status => data['status'] as String;
+
+  bool get isSuccess => status == 'success';
+
+  @override
+  String toString() {
+    return 'CommandReport(node: $node, endpoint: $endpoint, cluster: $cluster, command: $command, status: $status)';
   }
 }
 
