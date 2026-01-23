@@ -24,3 +24,8 @@ CREATE TABLE Signal(
   Distance double,
   Timestamp datetime
 );
+
+CREATE TABLE Location(
+  ID varchar(255) primary key,
+  Location varchar(255)
+);

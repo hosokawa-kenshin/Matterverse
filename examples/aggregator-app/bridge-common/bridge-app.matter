@@ -2269,6 +2269,29 @@ cluster TemperatureMeasurement = 1026 {
   readonly attribute int16u clusterRevision = 65533;
 }
 
+/** Attributes and commands for Location Detector Cluster */
+cluster LocationDetector = 4294048769 {
+  revision 1; // NOTE: Default/not specifically set
+
+  attribute char_string<36> beaconUUID = 0;
+  attribute int16u distance = 1;
+  attribute char_string<20> mediatorUID = 2;
+  attribute char_string<70> logEntry = 3;
+  readonly attribute command_id generatedCommandList[] = 65528;
+  readonly attribute command_id acceptedCommandList[] = 65529;
+  readonly attribute event_id eventList[] = 65530;
+  readonly attribute attrib_id attributeList[] = 65531;
+  readonly attribute bitmap32 featureMap = 65532;
+  readonly attribute int16u clusterRevision = 65533;
+
+  request struct RecordEntryRequest {
+    char_string entry = 0;
+  }
+
+  /** Command description for RecordEntry */
+  command RecordEntry(RecordEntryRequest): DefaultSuccess = 0;
+}
+
 endpoint 0 {
   device type ma_rootdevice = 22, version 1;
 
@@ -2661,6 +2684,21 @@ endpoint 1 {
     ram      attribute clusterRevision default = 1;
 
     handle command InstantAction;
+  }
+
+  server cluster LocationDetector {
+    ram      attribute beaconUUID default = "00000000-0000-0000-0000-000000000000";
+    ram      attribute distance default = 0;
+    ram      attribute mediatorUID default = "blescanner-000000";
+    ram      attribute logEntry default = "00000000-0000-0000-0000-000000000000000:00000:00000:blescanner-000000";
+    callback attribute generatedCommandList;
+    callback attribute acceptedCommandList;
+    callback attribute eventList;
+    callback attribute attributeList;
+    ram      attribute featureMap default = 0;
+    ram      attribute clusterRevision default = 1;
+
+    handle command RecordEntry;
   }
 }
 endpoint 2 {

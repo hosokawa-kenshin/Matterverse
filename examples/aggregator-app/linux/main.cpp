@@ -236,6 +236,15 @@ bool emberAfActionsClusterInstantActionCallback(app::CommandHandler * commandObj
     return true;
 }
 
+bool emberAfLocationDetectorClusterRecordEntryCallback(app::CommandHandler * commandObj,
+                                                       const app::ConcreteCommandPath & commandPath, const chip::CharSpan & entry)
+{
+    ChipLogProgress(DeviceLayer, "LocationDetector RecordEntry command received: %.*s", static_cast<int>(entry.size()),
+                    entry.data());
+    commandObj->AddStatus(commandPath, Protocols::InteractionModel::Status::Success);
+    return true;
+}
+
 void HandleDeviceStatusChanged(Device * dev, Device::Changed_t itemChangedMask)
 {
     if (itemChangedMask & Device::kChanged_Reachable)
@@ -464,76 +473,15 @@ Protocols::InteractionModel::Status emberAfExternalAttributeReadCallback(Endpoin
     return ret;
 }
 
-class BridgedPowerSourceAttrAccess : public AttributeAccessInterface
-{
-public:
-    // Register on all endpoints.
-    BridgedPowerSourceAttrAccess() : AttributeAccessInterface(Optional<EndpointId>::Missing(), PowerSource::Id) {}
-
-    CHIP_ERROR
-    Read(const ConcreteReadAttributePath & aPath, AttributeValueEncoder & aEncoder) override
-    {
-        uint16_t powerSourceDeviceIndex = CHIP_DEVICE_CONFIG_DYNAMIC_ENDPOINT_COUNT;
-
-        if ((gDevices[powerSourceDeviceIndex] != nullptr))
-        {
-            DevicePowerSource * dev = static_cast<DevicePowerSource *>(gDevices[powerSourceDeviceIndex]);
-            if (aPath.mEndpointId != dev->GetEndpointId())
-            {
-                return CHIP_IM_GLOBAL_STATUS(UnsupportedEndpoint);
-            }
-            switch (aPath.mAttributeId)
-            {
-            case PowerSource::Attributes::BatChargeLevel::Id:
-                aEncoder.Encode(dev->GetBatChargeLevel());
-                break;
-            case PowerSource::Attributes::Order::Id:
-                aEncoder.Encode(dev->GetOrder());
-                break;
-            case PowerSource::Attributes::Status::Id:
-                aEncoder.Encode(dev->GetStatus());
-                break;
-            case PowerSource::Attributes::Description::Id:
-                aEncoder.Encode(chip::CharSpan(dev->GetDescription().c_str(), dev->GetDescription().size()));
-                break;
-            case PowerSource::Attributes::EndpointList::Id: {
-                std::vector<chip::EndpointId> & list = dev->GetEndpointList();
-                DataModel::List<EndpointId> dm_list(chip::Span<chip::EndpointId>(list.data(), list.size()));
-                aEncoder.Encode(dm_list);
-                break;
-            }
-            case PowerSource::Attributes::ClusterRevision::Id:
-                aEncoder.Encode(ZCL_POWER_SOURCE_CLUSTER_REVISION);
-                break;
-            case PowerSource::Attributes::FeatureMap::Id:
-                aEncoder.Encode(dev->GetFeatureMap());
-                break;
-
-            case PowerSource::Attributes::BatReplacementNeeded::Id:
-                aEncoder.Encode(false);
-                break;
-            case PowerSource::Attributes::BatReplaceability::Id:
-                aEncoder.Encode(PowerSource::BatReplaceabilityEnum::kNotReplaceable);
-                break;
-            default:
-                return CHIP_IM_GLOBAL_STATUS(UnsupportedAttribute);
-            }
-        }
-        return CHIP_NO_ERROR;
-    }
-};
-
-BridgedPowerSourceAttrAccess gPowerAttrAccess;
-
 Protocols::InteractionModel::Status emberAfExternalAttributeWriteCallback(EndpointId endpoint, ClusterId clusterId,
                                                                           const EmberAfAttributeMetadata * attributeMetadata,
                                                                           uint8_t * buffer)
 {
-    uint16_t endpointIndex = emberAfGetDynamicIndexFromEndpoint(endpoint);
-
+    uint16_t endpointIndex                  = emberAfGetDynamicIndexFromEndpoint(endpoint);
     Protocols::InteractionModel::Status ret = Protocols::InteractionModel::Status::Failure;
 
-    // ChipLogProgress(DeviceLayer, "emberAfExternalAttributeWriteCallback: ep=%d", endpoint);
+    ChipLogProgress(DeviceLayer, "emberAfExternalAttributeWriteCallback: ep=%d cluster=0x%08x attr=0x%08x", endpoint,
+                    (uint32_t) clusterId, (uint32_t) attributeMetadata->attributeId);
 
     if (endpointIndex < CHIP_DEVICE_CONFIG_DYNAMIC_ENDPOINT_COUNT)
     {
@@ -811,6 +759,11 @@ void ApplicationInit()
 {
     // Clear out the device database
     memset(gDevices, 0, sizeof(gDevices));
+
+    // Initialize LocationDetector cluster
+    ChipLogProgress(DeviceLayer, "Initializing LocationDetector cluster...");
+    extern void MatterLocationDetectorPluginServerInitCallback();
+    MatterLocationDetectorPluginServerInitCallback();
 
     // Setup Location Tracking System
     ChipLogProgress(DeviceLayer, "Initializing Location Tracking System...");
