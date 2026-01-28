@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/fukawashin/git/Matterverse/examples/ble_matter_aggregator/linux",
+      "program": "/Users/fukawashin/git/Matterverse/examples/ble_matter_aggregator/linux/build/Debug/outDebug"
+    }
+  ]
+}
